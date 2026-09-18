@@ -1217,6 +1217,7 @@
       <div class="nav-item" data-view="equipe" hidden><span class="dot"></span> Equipe</div>
       <div class="nav-item" data-view="users" hidden><span class="dot"></span> Usuários</div>
       <div class="nav-item" data-view="treino" hidden><span class="dot"></span> 🎮 Treinamento</div>
+      <div class="nav-item" data-view="rot" hidden><span class="dot"></span> 🛻 Roteirizador</div>
       <div class="nav-item" data-view="seg" hidden><span class="dot"></span> 🛡 Segurança</div>
       <div class="nav-item disabled"><span class="dot"></span> Deslocando <span class="soon">em breve</span></div>
       <div class="nav-item disabled"><span class="dot"></span> SAC <span class="soon">em breve</span></div>
@@ -1510,6 +1511,17 @@
     </section>
 
     <!-- ============ Usuários ============ -->
+    <section id="viewRot" class="bi" hidden>
+      <header class="bi-top">
+        <div>
+          <div class="bi-eyebrow"><span class="live-dot"></span> ROTEIRIZADOR · TOM / CLAYTON AMORIM</div>
+          <h1 class="bi-h1">Roteirizador <span>· abastecimento e despesas</span></h1>
+        </div>
+        <div class="bi-controls"><button class="bi-btn" id="rotRefresh">↻ Atualizar</button></div>
+      </header>
+      <div id="rotCorpo"><div class="bi-empty">Carregando...</div></div>
+    </section>
+
     <section id="viewTreino" class="bi" hidden>
       <header class="bi-top">
         <div>
@@ -2083,7 +2095,7 @@
   // =====================================================================
   const VIEW_KEY = 'atendimento_view';
   // "mapa" usa a mesma tela da Visão geral, mostrando só o mapa (Help Desk não vê o BI)
-  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino' };
+  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino', rot: 'viewRot' };
 
   function mostrarView(v) {
     if (!views[v] || (perfil && !pode(PERM_DA_VIEW[v]))) return;
@@ -2099,6 +2111,7 @@
     if (v === 'users') carregarUsuarios();
     if (v === 'seg') carregarSeguranca();
     if (v === 'treino') carregarTreino();
+    if (v === 'rot') carregarRoteirizador();
     if (v === 'equipe') carregarEquipe();
     if (v === 'mon') { carregarMon(); carregarMeuMes('monitoramento'); }
     if (v === 'sac') carregarSac();
@@ -2915,7 +2928,7 @@
   // "__admin": telas exclusivas do papel ADMIN (não é permissão que se libera a operador)
   const pode = (p) => !!perfil && (p === '__admin' ? perfil.papel === 'ADMIN' : perfil.permissoes.includes(p));
   const verticaisDoPerfil = () => (!perfil ? [] : perfil.papel === 'ADMIN' ? ['PATRIMONIAL', 'VEICULAR'] : perfil.verticais);
-  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento' };
+  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento', rot: 'roteirizador' };
 
   async function carregarPerfil() {
     const r = await authedFetch('/auth/me');
@@ -2946,6 +2959,7 @@
   }));
   document.getElementById('segRefresh').onclick = () => carregarSeguranca();
   document.getElementById('treinoRefresh').onclick = () => carregarTreino();
+  document.getElementById('rotRefresh').onclick = () => carregarRoteirizador();
 
   async function segJson(url, metodo, corpo) {
     return metodo ? authedJson('/seguranca/painel' + url, metodo, corpo) : buscarJson('/seguranca/painel' + url);
@@ -3276,6 +3290,103 @@
   // Painel do mês — total da operação e os meus, só o mês corrente
   // =====================================================================
   // =====================================================================
+  // =====================================================================
+  // Aba Roteirizador — atendimentos do Tom/Clayton Amorim, abastecimento e despesas
+  // =====================================================================
+  const ROT_TIPO = { ABASTECIMENTO: '⛽ Abastecimento', PEDAGIO: '🛣️ Pedágio', MANUTENCAO: '🔧 Manutenção', ALIMENTACAO: '🍽️ Alimentação', ESTACIONAMENTO: '🅿️ Estacionamento', OUTRO: '📎 Outro' };
+  const rotState = { de: '', ate: '' };
+
+  async function carregarRoteirizador() {
+    const el = document.getElementById('rotCorpo');
+    el.innerHTML = '<div class="bi-empty">Carregando...</div>';
+    try {
+      const q = new URLSearchParams();
+      if (rotState.de) q.set('de', rotState.de);
+      if (rotState.ate) q.set('ate', rotState.ate);
+      const d = await buscarJson('/roteirizador?' + q.toString());
+      const r = d.resumo;
+      const cards = [
+        ['Atendimentos', fmt(r.atendimentos), d.periodo.de + ' a ' + d.periodo.ate],
+        ['Gasto total', brlCurto(r.totalGeral), 'abastecimento + despesas'],
+        ['Abastecimento', brlCurto(r.porTipo.ABASTECIMENTO?.valor || 0), (r.litros ? fmt(r.litros) + ' L' : 'sem litros lançados')],
+        ['Outras despesas', brlCurto(r.totalGeral - (r.porTipo.ABASTECIMENTO?.valor || 0)), 'pedágio, manutenção, etc.'],
+      ];
+      el.innerHTML = `
+        <div class="bi-controls" style="margin-bottom:12px;gap:8px;align-items:center">
+          <label class="sub">De <input type="date" id="rotDe" value="${rotState.de}" style="color-scheme:dark"></label>
+          <label class="sub">Até <input type="date" id="rotAte" value="${rotState.ate}" style="color-scheme:dark"></label>
+          <button class="bi-btn" id="rotFiltrar">Filtrar</button>
+        </div>
+        <div class="kpis">${cards.map(([l, v, s]) => `<div class="kpi"><div class="k-label">${l}</div><div class="k-value num">${v}</div><div class="k-sub">${s}</div></div>`).join('')}</div>
+        <div class="table-card" style="margin-top:14px"><table>
+          <thead><tr><th>Ref</th><th>Data</th><th>Motorista</th><th>Cliente</th><th>Paradas</th><th>Despesas</th><th></th></tr></thead>
+          <tbody id="rotBody"></tbody></table>
+        </div>`;
+      const body = document.getElementById('rotBody');
+      body.innerHTML = d.itens.map((it, i) => `
+        <tr data-i="${i}" style="cursor:pointer">
+          <td class="client-name">${escapeHtml(it.ref)}</td>
+          <td style="white-space:nowrap">${it.data ? new Date(it.data).toLocaleDateString('pt-BR') : '—'}</td>
+          <td>${escapeHtml(it.motorista)}</td>
+          <td>${escapeHtml(it.cliente || '—')}</td>
+          <td>${it.paradas || '—'}</td>
+          <td>${it.totalDespesas ? brlCurto(it.totalDespesas) : '—'}${it.litros ? ` · ${fmt(it.litros)}L` : ''}</td>
+          <td><button class="bi-btn" data-abrir="${i}">＋ despesa</button></td>
+        </tr>`).join('') || '<tr><td colspan="7">Nenhum atendimento do Roteirizador no período.</td></tr>';
+      body.querySelectorAll('[data-abrir]').forEach((b) => (b.onclick = (e) => { e.stopPropagation(); abrirRoteirizador(d.itens[+b.dataset.abrir], d.tiposDespesa); }));
+      body.querySelectorAll('tr[data-i]').forEach((tr) => (tr.onclick = () => abrirRoteirizador(d.itens[+tr.dataset.i], d.tiposDespesa)));
+      document.getElementById('rotFiltrar').onclick = () => { rotState.de = document.getElementById('rotDe').value; rotState.ate = document.getElementById('rotAte').value; carregarRoteirizador(); };
+    } catch (err) { el.innerHTML = `<div class="bi-empty">Erro: ${escapeHtml(err.message)}</div>`; }
+  }
+
+  function abrirRoteirizador(it, tipos) {
+    const dlg = document.createElement('div');
+    dlg.className = 'boas-vindas';
+    const linhaDesp = (d, i) => `<tr><td>${escapeHtml(ROT_TIPO[d.tipo] || d.tipo)}</td><td>${brlCurto(d.valor)}${d.litros ? ` · ${d.litros}L` : ''}${d.odometro ? ` · ${fmt(d.odometro)}km` : ''}</td><td>${d.data ? new Date(d.data + 'T12:00').toLocaleDateString('pt-BR') : ''}</td><td class="sub">${escapeHtml(d.obs || '')}${d.por === 'planilha/retorno' ? ' <i>(do retorno)</i>' : ''}</td><td>${d.por === 'planilha/retorno' ? '' : `<button class="bi-btn" data-rm="${i}">✕</button>`}</td></tr>`;
+    dlg.innerHTML = `<div class="bv-caixa" style="max-width:680px;text-align:left">
+      <h3 style="margin:0 0 4px">${escapeHtml(it.ref)} · ${it.data ? new Date(it.data).toLocaleDateString('pt-BR') : ''}</h3>
+      <div class="sub" style="margin-bottom:10px">${escapeHtml(it.cliente || '')} ${it.placa ? '· ' + escapeHtml(it.placa) : ''} ${it.paradas ? '· ' + it.paradas + ' paradas' : ''}</div>
+      <div class="ed-campo" style="margin-bottom:10px"><label>Motorista do dia (padrão Tom; troque quando ele não for)</label>
+        <div style="display:flex;gap:6px"><input id="rotMot" value="${escapeHtml(it.motorista)}" style="flex:1"><button class="bi-btn" id="rotSalvarMot">Salvar</button></div></div>
+      <table class="tr-rank" style="width:100%"><thead><tr><th>Tipo</th><th>Valor</th><th>Data</th><th>Obs</th><th></th></tr></thead>
+        <tbody id="rotDesp">${it.despesas.map(linhaDesp).join('') || '<tr><td colspan="5" class="sub">Sem despesas lançadas.</td></tr>'}</tbody></table>
+      <div style="margin-top:12px;border-top:1px solid rgba(148,163,184,.15);padding-top:10px">
+        <b class="sub">Lançar despesa</b>
+        <div class="seg-form" style="margin-top:6px">
+          <select id="ndTipo">${tipos.map((t) => `<option value="${t}">${ROT_TIPO[t] || t}</option>`).join('')}</select>
+          <input id="ndValor" type="number" step="0.01" placeholder="Valor R$" style="width:110px">
+          <input id="ndLitros" type="number" step="0.01" placeholder="Litros" style="width:90px">
+          <input id="ndOdo" type="number" placeholder="Km" style="width:90px">
+          <input id="ndData" type="date" style="color-scheme:dark">
+          <input id="ndObs" placeholder="Observação" style="min-width:140px">
+          <button class="bi-btn" id="ndAdd">Adicionar</button>
+        </div>
+      </div>
+      <div style="margin-top:14px;text-align:right"><button class="bv-ok" style="background:#334155;color:#e7f2f8">Fechar</button></div>
+    </div>`;
+    document.body.appendChild(dlg);
+    dlg.querySelector('.bv-ok').onclick = () => { dlg.remove(); carregarRoteirizador(); };
+    dlg.querySelector('#rotSalvarMot').onclick = async () => {
+      try { await authedJson(`/roteirizador/${it.id}/motorista`, 'PATCH', { motorista: dlg.querySelector('#rotMot').value }); alert('✓ motorista salvo'); }
+      catch (err) { alert(err.message); }
+    };
+    const recarregar = (despesas) => { it.despesas = despesas; dlg.querySelector('#rotDesp').innerHTML = despesas.map(linhaDesp).join('') || '<tr><td colspan="5" class="sub">Sem despesas lançadas.</td></tr>'; ligarRemocao(); };
+    const ligarRemocao = () => dlg.querySelectorAll('[data-rm]').forEach((b) => (b.onclick = async () => {
+      if (!confirm('Remover esta despesa?')) return;
+      try { const r = await authedJson(`/roteirizador/${it.id}/despesa/${b.dataset.rm}/remover`, 'POST', {}); recarregar(r.despesas); } catch (err) { alert(err.message); }
+    }));
+    ligarRemocao();
+    dlg.querySelector('#ndAdd').onclick = async () => {
+      const v = (id) => dlg.querySelector(id).value;
+      if (!(Number(v('#ndValor')) > 0)) return alert('Informe o valor.');
+      try {
+        const r = await authedJson(`/roteirizador/${it.id}/despesa`, 'POST', { tipo: v('#ndTipo'), valor: Number(v('#ndValor')), litros: v('#ndLitros') || undefined, odometro: v('#ndOdo') || undefined, data: v('#ndData') || undefined, obs: v('#ndObs') || undefined });
+        ['#ndValor', '#ndLitros', '#ndOdo', '#ndObs'].forEach((id) => (dlg.querySelector(id).value = ''));
+        recarregar(r.despesas);
+      } catch (err) { alert(err.message); }
+    };
+  }
+
   // Academia PR7 (Treinamento) — gabarito só no servidor
   // =====================================================================
   const AREA_TR = { MONITORAMENTO: 'Tratativa de eventos', PATRIMONIAL: 'Patrimonial', VEICULAR: 'Veicular', HELP_DESK: 'Help Desk', SAC: 'SAC', SEGURANCA: 'Segurança', CENTRAL: 'Central parceira' };

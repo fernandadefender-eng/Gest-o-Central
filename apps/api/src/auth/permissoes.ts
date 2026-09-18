@@ -27,6 +27,7 @@ export const PERMISSOES = {
   // Proteção de dados, acessos, LGPD e auditoria continuam só do administrador.
   nr1: 'NR-1 / SST: riscos, indicadores, acidentes e eSocial',
   treinamento: 'Treinamento (Academia PR7)',
+  roteirizador: 'Roteirizador: atendimentos, abastecimento e despesas do veículo',
 } as const;
 export type Permissao = keyof typeof PERMISSOES;
 
@@ -48,7 +49,7 @@ export const FUNCOES: Record<string, { nome: string; permissoes: Permissao[] }> 
   },
   AUXILIAR_ADM: {
     nome: 'Auxiliar Adm.',
-    permissoes: ['painel_mes', 'atendimentos', 'prestadores', 'valores', 'pagamentos', 'relatorios', 'treinamento'],
+    permissoes: ['painel_mes', 'atendimentos', 'prestadores', 'valores', 'pagamentos', 'relatorios', 'treinamento', 'roteirizador'],
   },
   ANALISTA: {
     nome: 'Analista',
@@ -56,7 +57,7 @@ export const FUNCOES: Record<string, { nome: string; permissoes: Permissao[] }> 
   },
   SUPERVISAO: {
     nome: 'Supervisão',
-    permissoes: ['visao_geral', 'mapa', 'painel_mes', 'monitoramento', 'sac', 'atendimentos', 'atendimentos_criar', 'prestadores', 'prestadores_editar', 'valores', 'pagamentos', 'equipe', 'relatorios', 'treinamento'],
+    permissoes: ['visao_geral', 'mapa', 'painel_mes', 'monitoramento', 'sac', 'atendimentos', 'atendimentos_criar', 'prestadores', 'prestadores_editar', 'valores', 'pagamentos', 'equipe', 'relatorios', 'treinamento', 'roteirizador'],
   },
   // Técnico responsável pela NR-1 (GRO/PGR) e pelos eventos de SST no eSocial (18/09/2026)
   TECNICO_SST: {

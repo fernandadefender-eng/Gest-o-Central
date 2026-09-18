@@ -179,14 +179,97 @@ export const MODULOS: Modulo[] = [
   // Centrais de monitoramento (18/09/2026: "Power, GR Tracker, Sincro e Seven são monitoramento").
   // Conteúdo entra quando chegar o material oficial de cada central.
   {
-    codigo: 'central-power', titulo: 'Monitoramento · Central Power', area: 'MONITORAMENTO', icone: '⚡', validado: false,
-    resumo: 'Tratativa de eventos na central Power.', aguardandoMaterial: 'Aguardando o material de treinamento da Power',
-    licoes: [], questoes: [],
+    codigo: 'central-power', titulo: 'Monitoramento · Pointer / Powerfleet', area: 'MONITORAMENTO', icone: '⚡', validado: false,
+    resumo: 'Desbloqueio de veículo, envio de comandos e abertura de chamado no Ocomon. (Base: material Pointer-Powerfleet.)',
+    licoes: [
+      { titulo: 'Veículo não liga — por onde começar', pontos: [
+        'Siga o Troubleshooting: primeiro descubra se o problema é do nosso rastreador ou do veículo.',
+        'Analise no Cellocator / DBPL Reports se o equipamento está comunicando.',
+        'Sirene sempre ativada ou o veículo que não liga podem ser falta de leitura da Dallas/RFID, ou mau contato dessa ligação.',
+      ] },
+      { titulo: 'Conferir a comunicação antes de qualquer comando', pontos: [
+        'A comunicação precisa estar ATUALIZADA para o equipamento acatar os parâmetros.',
+        'Peça ao condutor para deixar a chave ligada — o comando é acatado mais rápido.',
+        'Confira no DBPL Reports o hardware (Cello-F, Cellocan, Cr300, Cr100...) e os parâmetros da PL instalada.',
+      ] },
+      { titulo: 'Desabilitar parâmetros e SEMPRE confirmar', pontos: [
+        'Para o condutor conseguir ligar / cessar a sirene, desabilite: imobilizador quando não existir autenticação, eventos de autenticação, e sirene como lembrete de Dallas Key/RFID.',
+        'Depois de enviar, confirme que os parâmetros ficaram CONFIRMADOS (acompanhe a comunicação do equipamento).',
+        'Só então, no Fleet de Comandos, envie para desabilitar o imobilizador.',
+      ] },
+      { titulo: 'Toda ligação vira chamado', pontos: [
+        'Toda ligação atendida pela PR7 precisa ter um chamado aberto.',
+        'Quando desativamos Dallas/RFID/Sirene, abrir chamado de manutenção do rastreador.',
+        'Se não conseguir desbloquear (sem comunicação, sem envio de parâmetros) ou o cliente pedir emergencial, mesmo com tudo liberado, siga com chamado + processo de Emergencial.',
+        'Exceção: só não abre chamado quando é técnico já em manutenção no veículo e não precisa de novo envio.',
+      ] },
+      { titulo: 'Dados para abrir o chamado', pontos: [
+        'Peça ao cliente: Placa · Endereço completo com CEP · Pontos de referência · Nome completo · Telefone · E-mail.',
+      ] },
+      { titulo: 'Abertura no Ocomon e agendamento Pointer', pontos: [
+        'Ocomon: selecione o cliente, Área responsável "Suporte", Solicitação "Manutenção rastreador veículo".',
+        'Agendamento Pointer em 3 passos: motivo, posto de serviço autorizado mais próximo, e duas datas — a 1ª e a 2ª sugestão devem ser dias diferentes.',
+        'Escolha o posto pelo mais próximo/tipo de serviço; confirme o CEP com o cliente para trazer o endereço.',
+      ] },
+    ],
+    questoes: [
+      { id: 'cp1', dificuldade: 1, enunciado: 'O veículo não liga. Qual o primeiro passo?', opcoes: ['Enviar técnico na hora', 'Seguir o Troubleshooting e ver no Cellocator se é do rastreador ou do veículo', 'Trocar o rastreador', 'Abrir emergencial direto'], certa: 1, explicacao: 'Primeiro identifica onde está o problema.' },
+      { id: 'cp2', dificuldade: 2, enunciado: 'Por que pedir para o condutor deixar a chave ligada?', opcoes: ['Para gastar bateria', 'O comando é acatado mais rápido e a comunicação atualiza', 'Não faz diferença', 'Para tocar a sirene'], certa: 1, explicacao: 'A comunicação precisa estar atualizada para acatar os parâmetros.' },
+      { id: 'cp3', dificuldade: 2, enunciado: 'Depois de enviar os parâmetros, o que é obrigatório?', opcoes: ['Encerrar a ligação', 'Confirmar que ficaram CONFIRMADOS', 'Enviar de novo 3 vezes', 'Reiniciar o rastreador'], certa: 1, explicacao: 'Sempre confirmar o status CONFIRMADO acompanhando a comunicação.' },
+      { id: 'cp4', dificuldade: 1, enunciado: 'Toda ligação atendida pela PR7...', opcoes: ['Só as urgentes viram chamado', 'Precisa ter um chamado aberto', 'Nunca vira chamado', 'Só se o cliente pedir'], certa: 1, explicacao: 'Toda ligação precisa de chamado (com a exceção do técnico já em manutenção).' },
+      { id: 'cp5', dificuldade: 2, enunciado: 'Quais dados pedir ao cliente para o chamado?', opcoes: ['Só a placa', 'Placa, endereço com CEP, pontos de referência, nome, telefone e e-mail', 'Só o nome', 'CPF e RG'], certa: 1, explicacao: 'É o conjunto que o chamado exige.' },
+      { id: 'cp6', dificuldade: 3, enunciado: 'No agendamento Pointer, as duas sugestões de data devem ser...', opcoes: ['O mesmo dia', 'Dias diferentes', 'Sempre segunda-feira', 'Indiferente'], certa: 1, explicacao: '1ª e 2ª sugestão em dias diferentes.' },
+      { id: 'cp7', dificuldade: 3, enunciado: 'Não foi possível desbloquear por falta de comunicação. O que fazer?', opcoes: ['Encerrar como resolvido', 'Seguir com chamado + processo de Emergencial', 'Ignorar', 'Dizer ao cliente que está tudo certo'], certa: 1, explicacao: 'Sem desbloqueio ou com pedido emergencial, abre chamado e segue o Emergencial.' },
+    ],
   },
   {
     codigo: 'central-gr', titulo: 'Monitoramento · GR Tracker', area: 'MONITORAMENTO', icone: '📡', validado: false,
-    resumo: 'Tratativa de eventos na GR Tracker.', aguardandoMaterial: 'Aguardando o material de treinamento da GR Tracker',
-    licoes: [], questoes: [],
+    resumo: 'Instalações, manutenções e retiradas, conferência no GRID e eventos GR. (Base: material GR-Tracker.)',
+    licoes: [
+      { titulo: 'Início do plantão', pontos: [
+        'Verifique as agendas do dia para saber os serviços que serão feitos.',
+        'Contate o cliente e o técnico 1h30 antes para confirmar o serviço agendado.',
+        'Serviço de manhã: avise às 08:00 que é período da manhã. Serviço à tarde: avise às 13:00.',
+        'Confirme: horário, endereço, tipo de serviço (Instalação, Manutenção ou Retirada) e disponibilidade dos veículos.',
+      ] },
+      { titulo: 'Durante o serviço — o que o técnico deve enviar', pontos: [
+        'Com imagens: ID do equipamento, placa do veículo, local de instalação do equipamento e do bloqueio (nas instalações com bloqueio).',
+        'Confira o ID do equipamento no GRID: data e hora atualizadas e tensão acima de 12v.',
+      ] },
+      { titulo: 'Instalação em moto', pontos: [
+        'Tensão: acima de 12v com o veículo ligado; 0v com o veículo desligado.',
+        'O positivo do rastreador deve ser instalado no pós-chave da moto, NUNCA direto na bateria (descarrega a bateria).',
+      ] },
+      { titulo: 'Eventos GR e botão de pânico', pontos: [
+        'Há procedimento próprio para desconsiderar eventos GR — siga a instrução da central.',
+        'Botão de pânico: ao subir evento das placas monitoradas, encaminhe ao responsável definido pela operação (a lista de placas e contatos fica na base, não no treinamento).',
+      ] },
+    ],
+    questoes: [
+      { id: 'gr1', dificuldade: 1, enunciado: 'Com quanta antecedência confirmar o serviço com cliente e técnico?', opcoes: ['15 minutos', '1 hora e meia', 'No dia seguinte', 'Não precisa'], certa: 1, explicacao: '1h30 antes do serviço agendado.' },
+      { id: 'gr2', dificuldade: 2, enunciado: 'Serviço agendado para o período da manhã: quando avisar?', opcoes: ['Às 13:00', 'Às 08:00', 'Às 06:00', 'Só quando o técnico chegar'], certa: 1, explicacao: 'Manhã às 08:00; tarde às 13:00.' },
+      { id: 'gr3', dificuldade: 2, enunciado: 'No GRID, o que conferir no ID do equipamento?', opcoes: ['Só a placa', 'Data/hora atualizadas e tensão acima de 12v', 'A cor do veículo', 'O nome do técnico'], certa: 1, explicacao: 'Data/hora atualizadas e tensão acima de 12v.' },
+      { id: 'gr4', dificuldade: 3, enunciado: 'Instalação em moto: onde ligar o positivo do rastreador?', opcoes: ['Direto na bateria', 'No pós-chave da moto', 'No chassi', 'Tanto faz'], certa: 1, explicacao: 'No pós-chave, nunca direto na bateria — senão descarrega.' },
+      { id: 'gr5', dificuldade: 1, enunciado: 'Quais são os tipos de serviço a confirmar?', opcoes: ['Ronda, vistoria, escolta', 'Instalação, manutenção ou retirada', 'Compra, venda, troca', 'Só instalação'], certa: 1, explicacao: 'Instalação, manutenção ou retirada.' },
+    ],
+  },
+  {
+    codigo: 'central-bodycam', titulo: 'Bodycam · Uso e gravações', area: 'MONITORAMENTO', icone: '🎥', validado: false,
+    resumo: 'Uso da bodycam (Web e Desktop) e visualização das gravações. (Base: vídeos de treinamento da bodycam.)',
+    licoes: [
+      { titulo: 'Para que serve', pontos: [
+        'A bodycam registra o atendimento em campo — é prova e proteção do agente e da operação.',
+        'O material de vídeo (utilização via Web e Desktop, configuração e visualização das gravações) está na base de treinamento da PR7.',
+      ] },
+      { titulo: 'Boas práticas', pontos: [
+        'Confira carga e memória antes do plantão.',
+        'As gravações são de uso interno e restrito — nunca divulgar (mesma regra da segurança da informação).',
+      ] },
+    ],
+    questoes: [
+      { id: 'bc1', dificuldade: 1, enunciado: 'As gravações da bodycam podem ser divulgadas fora da empresa?', opcoes: ['Sim', 'Não — uso interno e restrito', 'Só as boas', 'Se o agente autorizar'], certa: 1, explicacao: 'É material restrito, como todo dado da operação.' },
+      { id: 'bc2', dificuldade: 1, enunciado: 'O que conferir antes do plantão?', opcoes: ['A cor da câmera', 'Carga e memória', 'Nada', 'O clima'], certa: 1, explicacao: 'Carga e memória para não perder gravação.' },
+    ],
   },
   {
     codigo: 'central-sincro', titulo: 'Monitoramento · Sincro', area: 'MONITORAMENTO', icone: '🔄', validado: false,

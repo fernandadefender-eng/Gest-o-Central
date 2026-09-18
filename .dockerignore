@@ -1,0 +1,12 @@
+# Nada de dados pessoais nem segredos dentro da imagem
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+backups
+storage
+entrada
+logs
+docs
+.git
+*.log

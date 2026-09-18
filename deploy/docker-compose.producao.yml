@@ -1,0 +1,66 @@
+# Produção PR7 num servidor (VPS) com domínio fixo — ver docs/hospedagem.md.
+#   cd /opt/pr7 && docker compose -f deploy/docker-compose.producao.yml --env-file deploy/.env up -d --build
+# Tudo reinicia sozinho (restart: always): queda de energia, reinício do servidor ou
+# falha de um serviço não deixam nada parado.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: atendimento
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no deploy/.env}
+      POSTGRES_DB: atendimento
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atendimento"]
+      interval: 10s
+      retries: 10
+    # Sem porta publicada: só a API (rede interna) acessa o banco
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: always
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://atendimento:${POSTGRES_PASSWORD}@postgres:5432/atendimento
+      REDIS_URL: redis://redis:6379
+      PORT: "3000"
+    volumes:
+      - storage:/app/storage
+      - backups:/app/backups
+
+  # HTTPS automático (Let's Encrypt) no domínio fixo — a Z-API aponta para ele e não
+  # muda mais de endereço (fim do túnel temporário)
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?defina DOMINIO no deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  storage:
+  backups:
+  caddy_data:

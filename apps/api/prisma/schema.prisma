@@ -1,0 +1,957 @@
+generator client {
+  provider      = "prisma-client-js"
+  // native = este computador (Windows); linux-musl = servidor (imagem Docker Alpine)
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id            String         @id @default(uuid())
+  name          String
+  phone         String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+  atendimentos  Atendimento[]
+  contas        Conta[]
+}
+
+// Uma Conta representa o vínculo entre um cliente e um endereço monitorado
+// (ex: o painel de alarme de uma loja específica). No sistema atual do PR7
+// (pr7sistemas.com.br) esse vínculo pode ser trocado sem validação — já
+// aconteceu de despachar um prestador para o endereço errado porque o
+// endereço de uma conta foi trocado pelo de outra sem querer. Por isso o
+// endereço aqui é imutável após a criação (endereçoTravado): qualquer
+// mudança real de endereço deve criar uma nova Conta, nunca editar o
+// endereço de uma conta existente, preservando o histórico e evitando
+// o bug de troca acidental.
+model Conta {
+  id             String        @id @default(uuid())
+  codigo         String        @unique
+  client         Client        @relation(fields: [clientId], references: [id])
+  clientId       String
+  estabelecimento String
+  endereco       String
+  cidade         String
+  estado         String
+  enderecoTravado Boolean      @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  atendimentos   Atendimento[]
+
+  @@index([clientId])
+}
+
+enum ProviderStatus {
+  PENDENTE
+  ATIVO
+  INATIVO
+  // Restrito pela operação: NÃO pode ser acionado (some das sugestões e o
+  // registro de ocorrência recusa). Importação da planilha nunca desfaz.
+  RESTRITO
+}
+
+enum ProviderTipo {
+  INDIVIDUAL
+  EQUIPE
+}
+
+// Prestador = o contato que a operação aciona. Quando é EQUIPE, esse contato
+// é o adm da região e quem vai ao local são os membros (agentes).
+// Cadastro completo (documentos, contrato) chega na Fase 2.
+model Provider {
+  id           String         @id @default(uuid())
+  // Nome principal: sempre nome completo (nome + sobrenome), nunca o apelido
+  name         String
+  // Codinome usado na operação (ex: "Joe Franco" para José Francisco)
+  apelido      String?
+  // Só dígitos, com DDD. Sem telefone válido na origem: "sem-telefone:<nome>"
+  phone        String         @unique
+  email        String?        @unique
+  status       ProviderStatus @default(PENDENTE)
+  tipo         ProviderTipo   @default(INDIVIDUAL)
+  cidadeBase   String?
+  estadoBase   String?
+  // Regras do cadastro não atendidas (ex: "Telefone sem DDD", "Nome sem sobrenome")
+  pendencias   String[]       @default([])
+  origem       String?
+  ultimoAtendimento DateTime?
+  motivoRestricao String?
+  restritoEm      DateTime?
+  restritoPor     String?
+  // Como este prestador é pago: 48H | SEMANAL | QUINZENAL | MENSAL | TX
+  // (vem da coluna "Pagamento" da planilha, que é do prestador, não do chamado)
+  regimePagamento String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  atendimentos Atendimento[]
+  recusas      Atendimento[]  @relation("RecusasPrestador")
+  membros      ProviderMembro[]
+  areas        ProviderArea[]
+  pagamentos   Pagamento[]
+}
+
+// Agente da equipe de um prestador — forma o organograma abaixo do adm.
+model ProviderMembro {
+  id           String   @id @default(uuid())
+  provider     Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId   String
+  // Como veio da planilha ("Nome do Agente"); pode ser apelido. Identificador da importação.
+  nome         String
+  // Nome principal (nome + sobrenome). Enquanto vazio, o cadastro fica pendente.
+  nomeCompleto String?
+  apelido      String?
+  telefone     String?  // só dígitos, com DDD
+  email        String?
+  ativo        Boolean  @default(true)
+  // Agente restrito: não pode ir a campo, nem pela equipe
+  restrito        Boolean   @default(false)
+  motivoRestricao String?
+  restritoEm      DateTime?
+  restritoPor     String?
+  atendimentos Int      @default(0)
+  atualizadoEm DateTime @default(now()) @updatedAt
+
+  @@unique([providerId, nome])
+}
+
+// ================= Empresas clientes (contratantes do PR7) =================
+// Diferente de Client, que hoje também guarda estabelecimentos atendidos: a
+// Empresa é quem contrata e recebe o fechamento (Orsegups, Segurpro, Belfort...).
+// Origem: planilha "Clientes.xlsx" do sistema atual.
+model Empresa {
+  id              String         @id @default(uuid())
+  razaoSocial     String
+  nomeFantasia    String?
+  cnpj            String?        @unique // só dígitos
+  inscMunicipal   String?
+  inscEstadual    String?
+  email           String?
+  telefone        String?
+  endereco        String?
+  bairro          String?
+  cidade          String?
+  uf              String?
+  cep             String?
+  ativo           Boolean        @default(true)
+  situacao        String?        // "Aprovado (sem anomalia)"...
+  qtdOrdensServico Int?          // do sistema anterior
+  cadastradoEm    DateTime?
+  // Palavras para reconhecer a empresa em nome de grupo ("orsegups", "segurpro")
+  apelidos        String[]       @default([])
+  criadoEm        DateTime       @default(now())
+  atualizadoEm    DateTime       @updatedAt
+  conversas       Conversation[]
+  atendimentos    Atendimento[]
+}
+
+// ================= Mídias dos atendimentos =================
+// Fotos, vídeos, áudios e documentos recebidos no WhatsApp. O arquivo é baixado
+// na chegada (o link da Z-API expira) e guardado em storage/midias. Base do
+// relatório em PDF com fotos.
+model Midia {
+  id            String       @id @default(uuid())
+  tipo          String       // FOTO | VIDEO | AUDIO | DOCUMENTO
+  mimeType      String?
+  legenda       String?
+  nomeOriginal  String?
+  arquivo       String?      // caminho relativo em storage/midias (null enquanto não baixou)
+  tamanhoBytes  Int?
+  sha256        String?
+  urlOrigem     String?      // link temporário da Z-API (uso interno)
+  status        String       @default("PENDENTE") // PENDENTE | SALVA | FALHOU
+  erro          String?
+  message       Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  messageId     String?      @unique
+  conversation  Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  conversationId String?
+  atendimento   Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+  atendimentoId String?
+  // Vai para o relatório do cliente? (padrão sim para fotos; a central pode desmarcar)
+  noRelatorio   Boolean      @default(true)
+  // O que estava escrito na print do pedido (ocorrência, conta, endereço...) — lido uma vez só
+  leitura       Json?
+  lidaEm        DateTime?
+  recebidaEm    DateTime     @default(now())
+
+  @@index([atendimentoId])
+  @@index([conversationId, recebidaEm])
+}
+
+// ================= Alertas veiculares divulgados =================
+// "DIVULGAÇÃO FURTO" enviada nos grupos: aviso para a rede ficar atenta à placa.
+// NÃO é chamado (não abre atendimento nem evento). Chamado veicular com a mesma placa
+// mostra o alerta na tela.
+model AlertaVeicular {
+  id              String    @id @default(uuid())
+  tipo            String    // FURTO | ROUBO | APROPRIACAO_INDEBITA | OUTRO
+  placa           String
+  chassi          String?
+  descricao       String?   // marca/modelo
+  cor             String?
+  anoModelo       String?
+  localOcorrencia String?
+  latitude        Float?
+  longitude       Float?
+  dataHoraTexto   String?   // como veio ("15/09 - 12:50(14:40)")
+  divulgadoEm     DateTime
+  grupo           String?
+  remetente       String?
+  empresaId       String?
+  messageId       String?   @unique
+  status          String    @default("ATIVO") // ATIVO | RECUPERADO | ENCERRADO
+  textoOriginal   String
+  criadoEm        DateTime  @default(now())
+
+  @@index([placa])
+  @@index([divulgadoEm])
+}
+
+// ================= SAC: canal do prestador com a operação =================
+// Reclamação de prestador (pagamento em atraso, atendimento em atraso, dúvida)
+// não é chamado de cliente: vira ticket de SAC, tratado pela supervisão.
+enum SacTipo {
+  PAGAMENTO_ATRASO     // comprovante/pagamento atrasado
+  ATENDIMENTO_ATRASO   // chamado dele parado / sem retorno
+  RECLAMACAO
+  DUVIDA
+  OUTRO
+}
+
+enum SacStatus {
+  ABERTO
+  EM_TRATATIVA
+  AGUARDANDO_FINANCEIRO
+  RESOLVIDO
+}
+
+model ChamadoSac {
+  id           String        @id @default(uuid())
+  tipo         SacTipo
+  status       SacStatus     @default(ABERTO)
+  // Mesma escala do monitoramento: prestador cobrando atraso entra como ALTA
+  prioridade   EventoPrioridade @default(MEDIA)
+  assunto      String
+  descricao    String?
+  solicitante  String?       // nome do prestador/pessoa que reclamou
+  telefone     String?       // só dígitos, com DDD
+  regiao       String?       // cidade/UF citada
+  providerId   String?       // prestador cadastrado, quando identificado
+  idsCitados   String[]      @default([])  // IDs PR7 citados na reclamação
+  grupo        String?
+  remetente    String?
+  messageId    String?       @unique
+  abertoEm     DateTime      @default(now())
+  atualizadoEm DateTime      @updatedAt
+  resolvidoEm  DateTime?
+  resolvidoPor String?
+  solucao      String?
+  tratativas   SacTratativa[]
+
+  @@index([status, prioridade])
+  @@index([abertoEm])
+  @@index([providerId])
+}
+
+model SacTratativa {
+  id        String     @id @default(uuid())
+  sac       ChamadoSac @relation(fields: [sacId], references: [id], onDelete: Cascade)
+  sacId     String
+  tipo      String     // NOTA | CONTATO | COMPROVANTE | SISTEMA
+  texto     String
+  usuario   String
+  criadoEm  DateTime   @default(now())
+
+  @@index([sacId, criadoEm])
+}
+
+// ================= Unidades policiais (apoio no deslocamento) =================
+// Delegacias (Polícia Civil), batalhões e postos (Polícia Militar), PRF e outras,
+// por estado. Origem: OpenStreetMap (amenity=police), dado aberto sob ODbL.
+model UnidadePolicial {
+  id         String   @id @default(uuid())
+  // PM | PC | PRF | PF | GM (guarda municipal) | BOMBEIROS | OUTRA
+  tipo       String
+  nome       String
+  uf         String
+  cidade     String?
+  bairro     String?
+  endereco   String?
+  telefone   String?
+  horario    String?
+  latitude   Float
+  longitude  Float
+  fonte      String   @default("OpenStreetMap")
+  idExterno  String   @unique // "node/123" ou "way/456"
+  atualizadoEm DateTime @updatedAt
+  criadoEm   DateTime @default(now())
+
+  @@index([uf, tipo])
+  @@index([cidade])
+}
+
+// ================= Áreas de risco (segurança pública) =================
+// Território sob domínio de facção/milícia e pontos de violência armada, para o
+// mapa de alerta do Veicular. Vale para todo estado, independente de termos
+// atendimento na região. Origem sempre registrada — nada é estimado pelo sistema.
+model AreaRisco {
+  id           String   @id @default(uuid())
+  // CV | TCP | ADA | CI | MILICIA | PCC | OUTRA | INDEFINIDA
+  faccao       String
+  uf           String
+  cidade       String?
+  bairro       String?
+  nome         String   // favela, complexo ou sub-bairro
+  // Centro da área e raio aproximado (quando não há polígono)
+  latitude     Float?
+  longitude    Float?
+  raioMetros   Int?
+  // Polígono oficial em GeoJSON, quando a fonte fornece
+  geojson      Json?
+  populacao    Int?
+  // Números da fonte: { rouboVeiculo, furtoVeiculo, rouboCarga, meses, porMes: [...] }
+  indicadores  Json?
+  // Grau de domínio informado pela fonte: DOMINIO | INFLUENCIA | DISPUTA
+  situacao     String?
+  fonte        String   // "GENI/UFF + Fogo Cruzado", "ISP-RJ", "SSP-SP"...
+  referencia   String?  // link ou documento
+  vigenteEm    DateTime // data a que o dado se refere
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([uf, faccao])
+  @@index([cidade])
+}
+
+// Ocorrência de violência armada georreferenciada (tiroteio, roubo de veículo)
+// vinda de fonte pública — alimenta o mapa de calor junto com os nossos alertas.
+model OcorrenciaPublica {
+  id          String   @id @default(uuid())
+  tipo        String   // TIROTEIO | ROUBO_VEICULO | FURTO_VEICULO | OUTRO
+  fonte       String   // "Fogo Cruzado", "ISP-RJ"...
+  idExterno   String?  @unique
+  uf          String
+  cidade      String?
+  bairro      String?
+  endereco    String?
+  latitude    Float?
+  longitude   Float?
+  ocorridoEm  DateTime
+  mortos      Int?
+  feridos     Int?
+  detalhes    Json?
+  criadoEm    DateTime @default(now())
+
+  @@index([uf, ocorridoEm])
+  @@index([tipo, ocorridoEm])
+}
+
+// ================= Pagamentos aos prestadores =================
+// Comprovante postado no grupo de pagamentos ("Nome/ Região/ IDs 36269/36448" + foto).
+// Um comprovante pode cobrir vários atendimentos; um atendimento é pago uma vez.
+model Pagamento {
+  id            String   @id @default(uuid())
+  prestadorNome String
+  provider      Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  providerId    String?
+  regiao        String?
+  cidade        String?
+  cliente       String?
+  conta         String?
+  valor         Decimal? @db.Decimal(10, 2)
+  // Regime combinado: 48H | SEMANAL | QUINZENAL | MENSAL
+  regime        String?
+  pagoEm        DateTime?
+  // Arquivo do comprovante em storage/comprovantes
+  arquivo       String?
+  origem        String   @default("WHATSAPP")
+  grupo         String?
+  autor         String?
+  // Chave de deduplicação (hash do texto + horário da mensagem)
+  chave         String   @unique
+  recebidoEm    DateTime
+  textoOriginal String?
+  criadoEm      DateTime @default(now())
+  itens         PagamentoAtendimento[]
+
+  @@index([prestadorNome])
+  @@index([pagoEm])
+  @@index([recebidoEm])
+}
+
+model PagamentoAtendimento {
+  id            String      @id @default(uuid())
+  pagamento     Pagamento   @relation(fields: [pagamentoId], references: [id], onDelete: Cascade)
+  pagamentoId   String
+  atendimento   Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+  atendimentoId String?
+  // ID PR7 citado no comprovante (guardado mesmo quando o atendimento ainda não existe no sistema)
+  idPR7         String
+  valor         Decimal?    @db.Decimal(10, 2)
+
+  @@unique([pagamentoId, idPR7])
+  @@index([idPR7])
+  @@index([atendimentoId])
+}
+
+// ================= Monitoramento: tratativa de eventos =================
+// Evento = o que chega para a central tratar (disparo de alarme, violação de
+// painel, perda de sinal...). Pode virar Atendimento (quando aciona prestador)
+// ou ser encerrado sem deslocamento (falso alarme, resolvido remoto).
+enum EventoStatus {
+  NOVO          // na fila, ninguém assumiu
+  EM_TRATATIVA  // operador assumiu
+  AGUARDANDO    // esperando retorno (cliente, responsável, prestador)
+  ENCAMINHADO   // prestador acionado, acompanhando
+  ENCERRADO
+}
+
+enum EventoPrioridade {
+  CRITICA
+  ALTA
+  MEDIA
+  BAIXA
+}
+
+enum EventoDesfecho {
+  ATENDIMENTO_REALIZADO // prestador foi ao local
+  SEM_PRESTADOR         // ninguém disponível para atender
+  FALSO_ALARME
+  RESOLVIDO_REMOTO      // resolvido por contato/verificação, sem deslocamento
+  SEM_CONTATO
+  CANCELADO_CLIENTE
+  DUPLICADO
+}
+
+model Evento {
+  id            String            @id @default(uuid())
+  origem        String            // WHATSAPP | MANUAL | INTEGRACAO
+  vertical      Vertical
+  tipo          String            // ex: "Disparo de alarme", "Violação de painel"
+  prioridade    EventoPrioridade  @default(MEDIA)
+  status        EventoStatus      @default(NOVO)
+  descricao     String?
+  clienteNome   String?
+  placa         String?
+  cidade        String?
+  uf            String?
+  ocorrencia    String?
+  idPR7         String?
+  // ID do evento no nosso sistema ("EV-2026-000123"): todo evento de tratativa tem um
+  idInterno     String?      @unique           // ID do acionamento no PR7
+  ocorridoEm    DateTime?         // quando o evento aconteceu (se informado)
+  recebidoEm    DateTime          @default(now())
+  assumidoPor   String?           // e-mail do operador
+  assumidoEm    DateTime?
+  encerradoPor  String?
+  encerradoEm   DateTime?
+  desfecho      EventoDesfecho?
+  atendimento   Atendimento?      @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+  atendimentoId String?           @unique
+  tratativas    EventoTratativa[]
+
+  @@index([status, prioridade, recebidoEm])
+}
+
+// Linha do tempo da tratativa: tudo o que o operador fez no evento.
+model EventoTratativa {
+  id       String   @id @default(uuid())
+  evento   Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  eventoId String
+  tipo     String   // NOTA | CONTATO_CLIENTE | ACIONAMENTO | STATUS | SISTEMA
+  texto    String
+  usuario  String   // e-mail, "IA" ou "sistema"
+  criadoEm DateTime @default(now())
+
+  @@index([eventoId, criadoEm])
+}
+
+// Lista de bloqueio: pessoas que NÃO podem atender, cadastradas ou não.
+// Verificada em sugestão de prestador, registro de ocorrência e importação —
+// quem voltar por outra equipe ou com outro cadastro é barrado pelo telefone
+// ou pelo nome completo. Guardar só o necessário para identificar: nada de
+// CPF, RG, e-mail pessoal ou dados bancários (minimização de dados, LGPD).
+model Restrito {
+  id           String   @id @default(uuid())
+  nomeCompleto String
+  nomeBusca    String   // nome normalizado (sem acento, minúsculo) para comparação
+  telefone     String?  @unique // só dígitos, com DDD
+  regiao       String?
+  motivo       String?
+  origem       String?  // ex: "e-mail da operação"
+  ativo        Boolean  @default(true)
+  criadoPor    String
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([nomeBusca])
+}
+
+// Trilha de auditoria: logins, bloqueios, acessos recusados e alterações de
+// cadastro. Só inclusão — nunca editar ou apagar registros (valor de prova).
+model EventoSeguranca {
+  id       String   @id @default(uuid())
+  // LOGIN_OK | LOGIN_FALHA | LOGIN_BLOQUEADO | WEBHOOK_RECUSADO | LIMITE_EXCEDIDO | CADASTRO_ALTERADO
+  tipo     String
+  ip       String?
+  usuario  String?
+  detalhe  String?
+  criadoEm DateTime @default(now())
+
+  @@index([tipo, criadoEm])
+  @@index([criadoEm])
+}
+
+// Cidade onde o prestador já atendeu — base para localizar e despachar.
+model ProviderArea {
+  id                String    @id @default(uuid())
+  provider          Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  providerId        String
+  cidade            String
+  estado            String
+  atendimentos      Int       @default(0)
+  ultimoAtendimento DateTime?
+
+  @@unique([providerId, cidade, estado])
+  @@index([estado])
+}
+
+// Coordenada aproximada (centro) de cada cidade, buscada uma vez no
+// OpenStreetMap/Nominatim (gratuito) e guardada para não repetir a consulta.
+model Cidade {
+  chave        String   @id // "nome normalizado|UF"
+  nome         String
+  uf           String
+  lat          Float?
+  lng          Float?
+  encontrada   Boolean
+  atualizadoEm DateTime @updatedAt
+}
+
+enum ConversationStatus {
+  ABERTA
+  PROCESSADA
+  ARQUIVADA
+}
+
+model Conversation {
+  id          String              @id @default(uuid())
+  client      Client              @relation(fields: [clientId], references: [id])
+  clientId    String
+  // Para conversa 1-a-1 é o telefone; para grupo é o id do grupo.
+  externalId  String              @unique
+  // A operação do PR7 acontece dentro de grupos (cliente + operador + agente
+  // no mesmo lugar, porque a decisão precisa ser rápida). Num grupo, quem
+  // manda a mensagem não é "o cliente" — é um participante específico.
+  isGroup     Boolean             @default(false)
+  groupName   String?
+  // CLIENTE: onde o pedido nasce (abre evento). PRESTADOR: onde o PR7 repassa o
+  // chamado e o prestador dá retorno (liga ao chamado pelo ID PR7/conta, nunca
+  // abre evento). INTERNO: equipe PR7 (só registra). Vazio = ainda não definido.
+  tipoGrupo   GrupoTipo?
+  // Empresa cliente dona do grupo (grupo tipo CLIENTE)
+  empresa     Empresa?            @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  empresaId   String?
+  midias      Midia[]
+  status      ConversationStatus  @default(ABERTA)
+  messages    Message[]
+  // Um grupo de cliente recebe várias ocorrências ao longo do tempo — por isso
+  // é lista, não um único atendimento.
+  atendimentos Atendimento[]
+  // Marca até onde a IA já leu. A vistoria de um local pode durar horas com
+  // pausas longas (técnico aguardando responsável, vistoria interna, etc), então
+  // a conversa é reclassificada várias vezes — só as mensagens posteriores a
+  // esta data são reenviadas, o resto vem do resumo já gravado.
+  lastClassifiedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([clientId])
+}
+
+enum MessageDirection {
+  ENTRANTE
+  SAINTE
+}
+
+model Message {
+  id             String           @id @default(uuid())
+  conversation   Conversation     @relation(fields: [conversationId], references: [id])
+  conversationId String
+  direction      MessageDirection
+  content        String
+  // Em grupo, identifica quem falou. Nulo em conversa 1-a-1.
+  senderPhone    String?
+  senderName     String?
+  externalId     String?          @unique
+  midia          Midia?
+  sentAt         DateTime
+  createdAt      DateTime         @default(now())
+  // Mensagem apagada/editada no WhatsApp continua aqui (regra de segurança da
+  // operação): só marca quando foi apagada e guarda as versões editadas.
+  // O banco tem trigger que impede DELETE nesta tabela.
+  apagadaNoWhatsappEm DateTime?
+  edicoes        Json?            // [{ em, conteudo }] — o "content" segue sendo o original
+
+  @@index([conversationId])
+}
+
+enum AtendimentoStatus {
+  NOVO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO     // cliente cancelou
+  NAO_ATENDIDO  // PR7 não conseguiu atender (negativa, demora, sem prestador...)
+}
+
+// Por que o chamado não foi atendido — obrigatório em CANCELADO e NAO_ATENDIDO
+enum MotivoNaoAtendimento {
+  CANCELADO_CLIENTE     // cliente cancelou o pedido
+  NEGATIVA_PRESTADOR    // prestador acionado recusou
+  DEMORA_ATENDIMENTO    // cliente desistiu / cancelou pela demora
+  SEM_PRESTADOR_REGIAO  // ninguém disponível na região
+  FALSO_ALARME          // resolvido antes do deslocamento / alarme falso
+  DUPLICADO             // chamado repetido
+  OUTRO
+}
+
+model Atendimento {
+  id             String            @id @default(uuid())
+  client         Client            @relation(fields: [clientId], references: [id])
+  clientId       String
+  conta          Conta?            @relation(fields: [contaId], references: [id])
+  contaId        String?
+  ocorrencia     String?
+  // ID do acionamento gerado pelo PR7 (sistema da operação / coluna "Id" da planilha).
+  // É a chave que liga o pedido no grupo do cliente ao retorno no grupo do prestador.
+  idPR7          String?
+  // Chamado anterior ao sistema (ou sem ID na origem): recebe um ID nosso, "PR7-H-000001"
+  idInterno      String?           @unique
+  // Chaves de conferência usadas por alguns clientes (planilha: "Validação" e "Sap").
+  // O nº de conta se repete entre empresas: vínculo automático exige cliente + horário
+  // e, quando existirem, validação/SAP iguais.
+  codigoValidacao String?
+  sap            String?
+  // Opcional: atendimento pode nascer de uma conversa de WhatsApp, de importação
+  // do sistema antigo ou de lançamento manual pelo operador.
+  conversation   Conversation?     @relation(fields: [conversationId], references: [id])
+  conversationId String?
+  provider       Provider?         @relation(fields: [providerId], references: [id])
+  providerId     String?
+  // Agente que foi ao local (pode ser membro da equipe do prestador)
+  agenteNome     String?
+  // Valores. O PR7 paga o prestador acionado; quando é EQUIPE, o adm acerta
+  // com os próprios agentes — o sistema não controla o repasse interno.
+  valorPrestador      Decimal? @db.Decimal(12, 2) // planilha: "Valor"
+  valorTotalPrestador Decimal? @db.Decimal(12, 2) // planilha: "Valor Total" (com adicionais)
+  valorCliente        Decimal? @db.Decimal(12, 2) // planilha: "Preservação cliente"
+  formaPagamento      String?  // planilha: "Pagamento" (Semanal, Quinzenal, 48 Hrs...)
+  // Linha de negócio: os campos e o fluxo são bem diferentes entre as duas
+  vertical       Vertical          @default(PATRIMONIAL)
+  placa          String?           // Veicular
+  latitude       Float?            // Veicular traz a coordenada da ocorrência
+  longitude      Float?
+  // Campos específicos da vertical (Veicular: modelo, franqueado, recuperado, KM,
+  // custos adicionais...). JSON para não criar dezenas de colunas quase sempre vazias.
+  detalhes       Json?
+  operadorPR7    String?
+  category       String?
+  summary        String?
+  resultado      String?
+  status         AtendimentoStatus @default(NOVO)
+
+  // Linha do tempo do chamado — base da análise de demora por operador:
+  // solicitado→acionado = tempo do OPERADOR; acionado→chegada = deslocamento do
+  // PRESTADOR; chegada→concluído = tempo no local.
+  solicitadoEm   DateTime?
+  // Fluxo com autorização do cliente: operador pede ("apoio a 20 min, pode seguir?") → cliente libera
+  autorizacaoPedidaEm DateTime?
+  liberadoEm     DateTime?
+  acionadoEm     DateTime?
+  chegadaEm      DateTime?
+  concluidoEm    DateTime?
+
+  // Não atendimento (status CANCELADO ou NAO_ATENDIDO)
+  motivoNaoAtendimento  MotivoNaoAtendimento?
+  detalheNaoAtendimento String?
+  // Prestador que recusou (negativa) — separado de providerId, que é quem atendeu
+  recusadoPor           Provider?  @relation("RecusasPrestador", fields: [recusadoPorId], references: [id])
+  recusadoPorId         String?
+  encerradoPor          String?    // usuário (e-mail) ou "IA"/"planilha"
+  encerradoEm           DateTime?
+  evento                Evento?
+  // Responsável no local (vem do "Contato no local" do retorno do prestador)
+  responsavelLocalNome     String?
+  responsavelLocalTelefone String?   // só dígitos, com DDD
+  // Empresa contratante (Orsegups, Segurpro...) — base do fechamento por cliente
+  empresa               Empresa?   @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  empresaId             String?
+  midias                Midia[]
+  // Pagamento ao prestador: preenchido quando o comprovante é postado no grupo
+  pagoEm                DateTime?
+  pagamentos            PagamentoAtendimento[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([clientId])
+  @@index([contaId])
+  @@index([providerId])
+  @@index([status])
+  @@index([vertical, createdAt])
+  @@index([idPR7])
+  @@index([placa])
+  @@index([operadorPR7, createdAt])
+  @@index([motivoNaoAtendimento])
+  @@index([pagoEm])
+}
+
+enum GrupoTipo {
+  CLIENTE
+  PRESTADOR
+  INTERNO
+}
+
+enum Vertical {
+  PATRIMONIAL
+  VEICULAR
+}
+
+// Registro de consumo da IA por classificação, para acompanhamento de custo.
+// Uma conversa gera vários registros ao longo da vistoria (classificação
+// incremental), então o custo real por atendimento é a soma dos seus registros.
+model ClassificationRun {
+  id              String   @id @default(uuid())
+  conversationId  String
+  atendimentoId   String?
+  model           String
+  inputTokens     Int
+  outputTokens    Int
+  cacheReadTokens Int      @default(0)
+  costUsd         Float
+  incremental     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([atendimentoId])
+  @@index([createdAt])
+}
+
+enum Papel {
+  ADMIN     // acesso total
+  OPERADOR  // só o que estiver em "permissoes" e "verticais"
+}
+
+// Usuários do painel (admin e operadores).
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  nome         String   @default("Administrador") // nome completo
+  papel        Papel    @default(ADMIN)
+  // Função na operação (HELP_DESK, OPERADOR_MONITORAMENTO, AUXILIAR_ADM, ANALISTA,
+  // SUPERVISAO — src/auth/permissoes.ts FUNCOES). Só pré-marca permissões.
+  funcao       String?
+  // Chaves de src/auth/permissoes.ts (visao_geral, atendimentos, valores, ...)
+  permissoes   String[] @default([])
+  verticais    Vertical[] @default([PATRIMONIAL, VEICULAR])
+  ativo        Boolean  @default(true)
+  ultimoAcesso DateTime?
+  senhaAlteradaEm DateTime?
+  criadoPor    String?
+  createdAt    DateTime @default(now())
+  avatar          String?   // Academia: "M" ou "F" (escolha do próprio usuário)
+}
+
+// ============================================================================
+// Segurança e compliance (aba Segurança — só Administrador)
+// ============================================================================
+
+// Checklist de conformidade: LGPD (Lei 13.709/2018), NR-1 (GRO/PGR) e segurança
+// interna. Itens "automatico" são conferidos pelo próprio sistema.
+model ItemCompliance {
+  id            String    @id @default(uuid())
+  norma         String    // LGPD | NR1 | SEGURANCA
+  codigo        String    @unique // LGPD-01, NR1-03...
+  titulo        String
+  descricao     String
+  status        String    @default("PENDENTE") // PENDENTE | EM_ANDAMENTO | ATENDIDO | NAO_SE_APLICA
+  automatico    Boolean   @default(false)
+  responsavel   String?
+  prazo         DateTime?
+  evidencia     String?
+  atualizadoPor String?
+  atualizadoEm  DateTime  @updatedAt
+}
+
+// NR-1 · inventário de riscos ocupacionais do PGR (inclui psicossociais)
+model RiscoOcupacional {
+  id            String    @id @default(uuid())
+  funcao        String    // Help Desk, Agente de pronta resposta, Recuperação veicular...
+  perigo        String
+  tipo          String    // FISICO | QUIMICO | BIOLOGICO | ERGONOMICO | ACIDENTE | PSICOSSOCIAL
+  severidade    Int       // 1 a 5
+  probabilidade Int       // 1 a 5
+  medidas       String    // medidas de prevenção existentes/propostas
+  responsavel   String?
+  prazo         DateTime?
+  status        String    @default("ABERTO") // ABERTO | EM_ANDAMENTO | CONTROLADO
+  atualizadoPor String?
+  // NR-1 aplicada só à equipe interna (18/09/2026): riscos de prestadores ficam guardados, fora do escopo
+  foraDoEscopo  Boolean   @default(false)
+  motivoEscopo  String?
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+}
+
+// Registro de incidentes: de dados (LGPD art. 48) e ocupacionais (NR-1)
+model IncidenteSeguranca {
+  id                    String    @id @default(uuid())
+  categoria             String    // DADOS | OCUPACIONAL
+  titulo                String
+  descricao             String
+  gravidade             String    // BAIXA | MEDIA | ALTA | CRITICA
+  dadosAfetados         String?
+  titularesAfetados     Int?
+  medidas               String?
+  ocorridoEm            DateTime
+  detectadoEm           DateTime  @default(now())
+  comunicadoAnpdEm      DateTime?
+  comunicadoTitularesEm DateTime?
+  esocialEnviadoEm      DateTime? // CAT (S-2210) enviada no eSocial — acidente de trabalho
+  esocialRecibo         String?
+  status                String    @default("ABERTO") // ABERTO | CONTIDO | ENCERRADO
+  registradoPor         String
+  atualizadoEm          DateTime  @updatedAt
+}
+
+// Fotografia da quantidade de registros por tabela: se uma tabela protegida
+// diminuir entre duas medições, o painel de Segurança acusa possível perda de dados
+model ContagemTabela {
+  id       String   @id @default(uuid())
+  tabela   String
+  total    Int
+  medidoEm DateTime @default(now())
+
+  @@index([tabela, medidoEm])
+}
+
+// Configurações de segurança do sistema (ex: sessões válidas a partir de)
+model ConfigSistema {
+  chave        String   @id
+  valor        String
+  atualizadoEm DateTime @updatedAt
+}
+
+/// Pedido de aprovação (18/09/2026): quando quem cuida da equipe da Operação (não-administrador)
+/// cadastra ou altera alguém fora da regra, a mudança espera o "de acordo" de um administrador.
+/// Senha nunca é guardada em texto: só o hash.
+model PedidoAprovacao {
+  id            String    @id @default(uuid())
+  tipo          String    // USUARIO_CRIAR | USUARIO_EDITAR
+  solicitante   String
+  alvoId        String?
+  alvoDescricao String
+  dados         Json
+  motivos       String[]
+  status        String    @default("PENDENTE") // PENDENTE | APROVADO | RECUSADO
+  decididoPor   String?
+  decididoEm    DateTime?
+  observacao    String?
+  criadoEm      DateTime  @default(now())
+
+  @@index([status, criadoEm])
+}
+
+/// Informação de riscos aos trabalhadores (NR-1, item "informar os trabalhadores"), 18/09/2026.
+/// O técnico de SST escolhe as funções e os destinatários; cada um recebe por e-mail um link
+/// pessoal, com validade, que mostra SÓ os riscos e as medidas daquelas funções.
+model ComunicadoSst {
+  id            String                   @id @default(uuid())
+  titulo        String
+  mensagem      String
+  funcoes       String[]                 // funções do inventário de riscos incluídas
+  criadoPor     String
+  criadoEm      DateTime                 @default(now())
+  expiraEm      DateTime
+  revogadoEm    DateTime?
+  revogadoPor   String?
+  destinatarios ComunicadoDestinatario[]
+}
+
+/// Um destinatário do comunicado. O link não é guardado: só o hash (SHA-256) do código.
+model ComunicadoDestinatario {
+  id           String        @id @default(uuid())
+  comunicadoId String
+  comunicado   ComunicadoSst @relation(fields: [comunicadoId], references: [id])
+  nome         String
+  email        String
+  tokenHash    String        @unique
+  enviadoEm    DateTime?
+  envioErro    String?
+  abertoEm     DateTime?
+  aberturas    Int           @default(0)
+  cienteEm     DateTime?
+  cienteIp     String?
+
+  @@index([comunicadoId])
+}
+
+/// Academia PR7 (aba Treinamento), 18/09/2026. Conteúdo fica no código (treinamento/conteudo.ts);
+/// aqui só o que cada pessoa fez. Gabarito nunca vai para o navegador.
+model TreinoResposta {
+  id           String   @id @default(uuid())
+  userId       String
+  questaoId    String
+  moduloCodigo String
+  correta      Boolean
+  primeira     Boolean  // primeira tentativa nesta questão (vale para a nota)
+  xp           Int      @default(0)
+  tempoMs      Int?
+  criadoEm     DateTime @default(now())
+
+  @@index([userId, criadoEm])
+  @@index([userId, questaoId])
+}
+
+model TreinoSimulacao {
+  id       String   @id @default(uuid())
+  userId   String
+  cenarioId String
+  acertos  Int
+  total    Int
+  tempoMs  Int
+  xp       Int
+  respostas Json
+  criadoEm DateTime @default(now())
+
+  @@index([userId, criadoEm])
+}
+
+/// Conteúdo conferido pela supervisão: só módulos validados entram no certificado.
+model TreinoValidacao {
+  moduloCodigo String   @id
+  validadoPor  String
+  validadoEm   DateTime @default(now())
+  observacao   String?
+}
+
+/// Certificado emitido (PDF com o logo da PR7). O código permite conferir a autenticidade.
+model TreinoCertificado {
+  id        String   @id @default(uuid())
+  codigo    String   @unique
+  userId    String
+  nome      String
+  email     String
+  trilha    String
+  modulos   String[]
+  nota      Int
+  xp        Int
+  ranque    String
+  emitidoEm DateTime @default(now())
+
+  @@index([userId])
+}

@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+.next/
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+# Backups do banco contêm dados pessoais — nunca versionar
+backups/
+
+# Arquivos recebidos da operação (listas de restritos, e-mails salvos) — dados pessoais
+entrada/
+
+# Logs da API (podem conter nomes e telefones)
+logs/
+
+# Fotos, vídeos e documentos dos atendimentos (dados de clientes)
+storage/
+
+# Config local do Claude Code
+.claude/
+
+# Ferramenta local de recuperação de senha — contém pistas pessoais, nunca versionar
+apps/api/scripts/descobrir-senha-planilha.py

@@ -25,6 +25,7 @@ import { PainelSegurancaModule } from './seguranca/painel-seguranca.module';
 import { ComunicadosModule } from './sst/comunicados.module';
 import { TreinamentoModule } from './treinamento/treinamento.module';
 import { RoteirizadorAbaModule } from './roteirizador/roteirizador-aba.module';
+import { FechamentosModule } from './fechamentos/fechamentos.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { RoteirizadorAbaModule } from './roteirizador/roteirizador-aba.module';
     ComunicadosModule,
     TreinamentoModule,
     RoteirizadorAbaModule,
+    FechamentosModule,
   ],
 })
 export class AppModule {}

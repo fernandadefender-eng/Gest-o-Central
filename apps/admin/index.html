@@ -1218,6 +1218,7 @@
       <div class="nav-item" data-view="users" hidden><span class="dot"></span> Usuários</div>
       <div class="nav-item" data-view="treino" hidden><span class="dot"></span> 🎮 Treinamento</div>
       <div class="nav-item" data-view="rot" hidden><span class="dot"></span> 🛻 Roteirizador</div>
+      <div class="nav-item" data-view="fech" hidden><span class="dot"></span> 💰 Fechamentos</div>
       <div class="nav-item" data-view="seg" hidden><span class="dot"></span> 🛡 Segurança</div>
       <div class="nav-item disabled"><span class="dot"></span> Deslocando <span class="soon">em breve</span></div>
       <div class="nav-item disabled"><span class="dot"></span> SAC <span class="soon">em breve</span></div>
@@ -1511,6 +1512,17 @@
     </section>
 
     <!-- ============ Usuários ============ -->
+    <section id="viewFech" class="bi" hidden>
+      <header class="bi-top">
+        <div>
+          <div class="bi-eyebrow"><span class="live-dot"></span> FECHAMENTOS · FATURAMENTO DO CLIENTE · SÓ ADMINISTRADOR</div>
+          <h1 class="bi-h1">Fechamentos <span>· valor do cliente</span></h1>
+        </div>
+        <div class="bi-controls"><button class="bi-btn" id="fechRefresh">↻ Atualizar</button></div>
+      </header>
+      <div id="fechCorpo"><div class="bi-empty">Carregando...</div></div>
+    </section>
+
     <section id="viewRot" class="bi" hidden>
       <header class="bi-top">
         <div>
@@ -2095,7 +2107,7 @@
   // =====================================================================
   const VIEW_KEY = 'atendimento_view';
   // "mapa" usa a mesma tela da Visão geral, mostrando só o mapa (Help Desk não vê o BI)
-  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino', rot: 'viewRot' };
+  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino', rot: 'viewRot', fech: 'viewFech' };
 
   function mostrarView(v) {
     if (!views[v] || (perfil && !pode(PERM_DA_VIEW[v]))) return;
@@ -2112,6 +2124,7 @@
     if (v === 'seg') carregarSeguranca();
     if (v === 'treino') carregarTreino();
     if (v === 'rot') carregarRoteirizador();
+    if (v === 'fech') carregarFechamentos();
     if (v === 'equipe') carregarEquipe();
     if (v === 'mon') { carregarMon(); carregarMeuMes('monitoramento'); }
     if (v === 'sac') carregarSac();
@@ -2928,7 +2941,7 @@
   // "__admin": telas exclusivas do papel ADMIN (não é permissão que se libera a operador)
   const pode = (p) => !!perfil && (p === '__admin' ? perfil.papel === 'ADMIN' : perfil.permissoes.includes(p));
   const verticaisDoPerfil = () => (!perfil ? [] : perfil.papel === 'ADMIN' ? ['PATRIMONIAL', 'VEICULAR'] : perfil.verticais);
-  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento', rot: 'roteirizador' };
+  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento', rot: 'roteirizador', fech: '__admin' };
 
   async function carregarPerfil() {
     const r = await authedFetch('/auth/me');
@@ -2960,6 +2973,7 @@
   document.getElementById('segRefresh').onclick = () => carregarSeguranca();
   document.getElementById('treinoRefresh').onclick = () => carregarTreino();
   document.getElementById('rotRefresh').onclick = () => carregarRoteirizador();
+  document.getElementById('fechRefresh').onclick = () => carregarFechamentos();
 
   async function segJson(url, metodo, corpo) {
     return metodo ? authedJson('/seguranca/painel' + url, metodo, corpo) : buscarJson('/seguranca/painel' + url);
@@ -3290,6 +3304,89 @@
   // Painel do mês — total da operação e os meus, só o mês corrente
   // =====================================================================
   // =====================================================================
+  // =====================================================================
+  // Aba Fechamentos — faturamento do cliente (SÓ ADM; supervisão não vê)
+  // =====================================================================
+  const fechState = { de: '', ate: '', empresaId: null, nome: '' };
+
+  async function carregarFechamentos() {
+    const el = document.getElementById('fechCorpo');
+    el.innerHTML = '<div class="bi-empty">Carregando...</div>';
+    try {
+      const q = new URLSearchParams();
+      if (fechState.de) q.set('de', fechState.de);
+      if (fechState.ate) q.set('ate', fechState.ate);
+      const d = await buscarJson('/fechamentos?' + q.toString());
+      const cards = [
+        ['Faturamento', brlCurto(d.totalFaturamento), d.periodo.de + ' a ' + d.periodo.ate],
+        ['Atendimentos', fmt(d.totalAtendimentos), 'concluídos no período'],
+        ['Sem valor de cliente', fmt(d.semValor), 'a definir para faturar'],
+        ['Clientes', fmt(d.clientes.length), 'com atendimento no período'],
+      ];
+      el.innerHTML = `
+        <div class="bi-controls" style="margin-bottom:12px;gap:8px;align-items:center">
+          <label class="sub">De <input type="date" id="fDe" value="${fechState.de}" style="color-scheme:dark"></label>
+          <label class="sub">Até <input type="date" id="fAte" value="${fechState.ate}" style="color-scheme:dark"></label>
+          <button class="bi-btn" id="fFiltrar">Filtrar</button>
+        </div>
+        <div class="kpis">${cards.map(([l, v, s]) => `<div class="kpi"><div class="k-label">${l}</div><div class="k-value num">${v}</div><div class="k-sub">${s}</div></div>`).join('')}</div>
+        <div class="table-card" style="margin-top:14px"><table>
+          <thead><tr><th>Cliente</th><th>Atend.</th><th>Com valor</th><th>Sem valor</th><th>Faturamento</th><th>Faturado</th></tr></thead>
+          <tbody id="fBody"></tbody></table></div>`;
+      document.getElementById('fBody').innerHTML = d.clientes.map((c, i) => `
+        <tr data-i="${i}" style="cursor:pointer">
+          <td class="client-name">${escapeHtml(c.nome)}</td>
+          <td>${fmt(c.atendimentos)}</td>
+          <td>${fmt(c.comValor)}</td>
+          <td>${c.semValor ? `<span style="color:#fbbf24">${fmt(c.semValor)}</span>` : '0'}</td>
+          <td>${brlCurto(c.faturamento)}</td>
+          <td>${c.faturado ? `<span style="color:#2dd4bf">${fmt(c.faturado)}</span>` : '—'}</td>
+        </tr>`).join('') || '<tr><td colspan="6">Nenhum atendimento concluído no período.</td></tr>';
+      document.querySelectorAll('#fBody tr[data-i]').forEach((tr) => (tr.onclick = () => abrirFechamentoCliente(d.clientes[+tr.dataset.i])));
+      document.getElementById('fFiltrar').onclick = () => { fechState.de = document.getElementById('fDe').value; fechState.ate = document.getElementById('fAte').value; carregarFechamentos(); };
+    } catch (err) { el.innerHTML = `<div class="bi-empty">${err.message.includes('exclusiva') || err.message.includes('administrador') ? '🔒 Área exclusiva do administrador.' : 'Erro: ' + escapeHtml(err.message)}</div>`; }
+  }
+
+  async function abrirFechamentoCliente(c) {
+    const empresaId = c.empresaId || 'sem-empresa';
+    const q = new URLSearchParams();
+    if (fechState.de) q.set('de', fechState.de);
+    if (fechState.ate) q.set('ate', fechState.ate);
+    let itens;
+    try { itens = await buscarJson(`/fechamentos/cliente/${encodeURIComponent(empresaId)}?` + q.toString()); }
+    catch (err) { return alert(err.message); }
+    const dlg = document.createElement('div');
+    dlg.className = 'tr-jogo';
+    const linha = (it) => `<tr data-id="${it.id}"><td>${escapeHtml(it.ref)}</td><td>${it.data ? new Date(it.data).toLocaleDateString('pt-BR') : '—'}</td><td>${escapeHtml(it.category || '')}</td><td>${escapeHtml(it.local || '')}</td>
+      <td><input type="number" step="0.01" min="0" value="${it.valorCliente ?? ''}" data-vc style="width:100px;background:rgba(255,255,255,.05);border:1px solid rgba(148,163,184,.3);border-radius:6px;color:#e7f2f8;padding:4px"></td>
+      <td>${it.faturado ? '✓' : ''}</td></tr>`;
+    dlg.innerHTML = `<div class="tr-palco" style="max-width:860px">
+      <h2>${escapeHtml(c.nome)} · faturamento</h2>
+      <div class="tr-sub" style="margin-bottom:8px">${fechState.de || '—'} a ${fechState.ate || 'hoje'} · ${itens.length} atendimentos. Defina o valor do cliente (só o ADM vê e mexe aqui).</div>
+      <div style="max-height:52vh;overflow:auto"><table class="tr-rank" style="width:100%">
+        <thead><tr><th>Ref</th><th>Data</th><th>Serviço</th><th>Local</th><th>Valor cliente (R$)</th><th>Fat.</th></tr></thead>
+        <tbody id="fcBody">${itens.map(linha).join('')}</tbody></table></div>
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <span class="tr-sub" id="fcMsg"></span>
+        <span><button class="tr-btn" id="fcFechar">Fechar período (marcar faturado)</button> <button class="tr-btn sec" id="fcSair">Voltar</button></span>
+      </div></div>`;
+    document.body.appendChild(dlg);
+    dlg.querySelector('#fcSair').onclick = () => { dlg.remove(); carregarFechamentos(); };
+    // Salva o valor ao sair do campo
+    dlg.querySelectorAll('#fcBody tr').forEach((tr) => tr.querySelector('[data-vc]').addEventListener('change', async (e) => {
+      const v = e.target.value === '' ? null : Number(e.target.value);
+      try {
+        await authedJson(`/fechamentos/atendimento/${tr.dataset.id}`, 'PATCH', { valor: v });
+        e.target.style.borderColor = '#2dd4bf'; dlg.querySelector('#fcMsg').textContent = '✓ salvo';
+      } catch (err) { e.target.style.borderColor = '#fb7185'; dlg.querySelector('#fcMsg').textContent = err.message; }
+    }));
+    dlg.querySelector('#fcFechar').onclick = async () => {
+      if (!confirm('Marcar como faturados todos os atendimentos com valor de cliente neste período? (fica registrado quem fechou)')) return;
+      try { const r = await authedJson(`/fechamentos/cliente/${encodeURIComponent(empresaId)}/fechar`, 'POST', { de: fechState.de || undefined, ate: fechState.ate || undefined }); alert(`✓ ${r.faturados} atendimentos marcados como faturados.`); dlg.remove(); carregarFechamentos(); }
+      catch (err) { alert(err.message); }
+    };
+  }
+
   // =====================================================================
   // Aba Roteirizador — atendimentos do Tom/Clayton Amorim, abastecimento e despesas
   // =====================================================================

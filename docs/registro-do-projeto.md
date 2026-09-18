@@ -425,3 +425,8 @@ O usuário confirmou que há **mais subtipos de serviço** dentro de "Patrimonia
 2. Conectar a um BSP de WhatsApp real (substituindo a simulação do webhook).
 3. Iniciar Fase 2 (portal de prestadores + contrato) quando o usuário confirmar o provedor de e-signature.
 4. Quando chegar a Fase 3: aguardar a planilha de campos do usuário, então detalhar o schema de `FieldReport` (fotos/áudio/texto) + exportação PDF/Word/Excel/XML + o mecanismo de alerta de prazo estourado.
+
+## 2026-09-18 (11) — Treinamentos da base, aba Fechamentos (cliente, só ADM)
+- **Academia**: módulos Pointer/Powerfleet, GR-Tracker e Bodycam preenchidos com o material da pasta `02-Base PR7` (aguardam validação da supervisão). Vídeos ficam como apoio (não transcritos).
+- **Aba Fechamentos** (`fechamentos/fechamentos.module.ts`, `@SomenteAdmin()`): o **valor do cliente** (faturamento) fica só aqui, exclusivo do ADMINISTRADOR — a supervisão não vê (403). Resumo por cliente/período (faturamento, atendimentos, quantos sem valor), define `valorCliente` por atendimento (auditado, com `detalhes.valorClienteManual`), e "fechar período" marca `detalhes.faturado`. Aba `💰 Fechamentos` no painel gated por `__admin`. Regra: **valor de cliente → Fechamentos; valor de apoio → nos atendimentos**. Teste: `scripts/teste-fechamentos.ts` (8).
+- **Pendências levantadas** (memória `project_pr7_regras_operacao`): TBG (valor 350 é do cliente, não do apoio; valor ao apoio é acordado por pessoa; camiseta branca); planilha de cadeados físicos ainda não localizada; `Senhas base.xlsx` tem logins em texto puro (risco — não importado); negativas atual a definir.

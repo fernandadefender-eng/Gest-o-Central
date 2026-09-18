@@ -20,7 +20,7 @@ No servidor: endereço fixo com HTTPS, tudo reinicia sozinho (`restart: always`)
 | Quem administra | nós (arquivos prontos em `deploy/`) | a plataforma |
 | Observação | confirmar na compra o datacenter na América do Sul | preço varia com o uso |
 
-Domínio: usar um subdomínio do que já existe (ex.: `painel.pr7.seg.br`) — **R$ 0**. Só é preciso criar um registro DNS apontando para o servidor.
+Domínio: usar um subdomínio do que já existe (ex.: `gestaosystemas.pr7.seg.br`) — **R$ 0**. Só é preciso criar um registro DNS apontando para o servidor.
 
 Nada é contratado sem aprovação do valor.
 
@@ -32,12 +32,12 @@ Nada é contratado sem aprovação do valor.
 
 ## Passo a passo da migração (≈ 1 hora, de madrugada)
 1. **Você**: contrata o plano e cria o acesso por **chave SSH** (eu gero a chave; você cola a parte pública no painel da Hostinger — nenhuma senha passa por mim).
-2. **Você**: cria o registro DNS `painel` → IP do servidor.
+2. **Você**: cria o registro DNS `gestaosystemas` → IP do servidor.
 3. Eu instalo Docker no servidor, copio o projeto e preencho `deploy/.env` com os mesmos segredos do `apps/api/.env`.
 4. Backup final aqui (`scripts/backup-agora.ts`) → restauro no servidor; copio `storage/` (fotos e comprovantes).
 5. `docker compose -f deploy/docker-compose.producao.yml --env-file deploy/.env up -d --build`
-6. Aponto a Z-API para `https://painel.pr7.seg.br/webhooks/whatsapp?token=…` e confiro a primeira mensagem real.
-7. Desligo o túnel e o vigia daqui. O painel passa a ser `https://painel.pr7.seg.br/painel/`.
+6. Aponto a Z-API para `https://gestaosystemas.pr7.seg.br/webhooks/whatsapp?token=…` e confiro a primeira mensagem real.
+7. Desligo o túnel e o vigia daqui. O painel passa a ser `https://gestaosystemas.pr7.seg.br/painel/`.
 
 ## Atualizar a API no computador (enquanto não migra)
 Sempre com `powershell -ExecutionPolicy Bypass -File scripts\atualizar-api.ps1` — compila com a API no ar

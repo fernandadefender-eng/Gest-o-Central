@@ -1,4 +1,4 @@
-# Domínio fixo com HTTPS automático. DOMINIO vem do deploy/.env (ex: painel.pr7.seg.br)
+# Domínio fixo com HTTPS automático. DOMINIO vem do deploy/.env (ex: gestaosystemas.pr7.seg.br)
 {$DOMINIO} {
 	encode gzip
 	reverse_proxy api:3000

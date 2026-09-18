@@ -64,8 +64,10 @@ async function main() {
   const jaExiste = await prisma.chamadoSac.findFirst({ where: { solicitante: { contains: 'Alberto', mode: 'insensitive' } } });
   if (!jaExiste) {
     const quando = comprovante?.sentAt ?? new Date();
+    const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`SELECT nextval('sac_numero_seq') AS n`;
     const sac = await prisma.chamadoSac.create({
       data: {
+        numero: Number(n),
         tipo: 'ATENDIMENTO_ATRASO', assunto: 'Atendimento em atraso — cobrança do prestador', prioridade: 'ALTA',
         descricao: 'Prestador Alberto Fonseca (Recife) informou atendimento em atraso e foi direcionado ao SAC, com prioridade.',
         solicitante: 'Alberto Fonseca', regiao: 'Recife/PE', idsCitados: ['36259', '36467'],

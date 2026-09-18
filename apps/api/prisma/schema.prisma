@@ -231,6 +231,8 @@ enum SacStatus {
 
 model ChamadoSac {
   id           String        @id @default(uuid())
+  // Numeração legível "Sac-0001" (sequência sac_numero_seq — nunca repete)
+  numero       Int           @unique  // vem de sac_numero_seq (proximoNumeroSac)
   tipo         SacTipo
   status       SacStatus     @default(ABERTO)
   // Mesma escala do monitoramento: prestador cobrando atraso entra como ALTA

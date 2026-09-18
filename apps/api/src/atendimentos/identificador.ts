@@ -23,6 +23,22 @@ export async function proximoIdInterno(prisma: Pick<PrismaService, '$queryRaw'>)
   return `${PREFIXO_ATENDIMENTO}${String(n).padStart(6, '0')}`;
 }
 
+const PREFIXO_SAC = 'Sac-';
+
+/**
+ * Próximo número do SAC ("Sac-0001"). Sai da sequência do banco (sac_numero_seq):
+ * nunca repete, mesmo se um ticket for removido. Regra da operação (18/09/2026):
+ * "tudo que for tratado como SAC segue desta forma (Sac-)".
+ */
+export async function proximoNumeroSac(prisma: Pick<PrismaService, '$queryRaw'>): Promise<number> {
+  const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`SELECT nextval('sac_numero_seq') AS n`;
+  return Number(n);
+}
+
+/** Formata o número do SAC como "Sac-0001" (mínimo 4 dígitos). */
+export const identificadorSac = (numero?: number | null) =>
+  numero == null ? null : `${PREFIXO_SAC}${String(numero).padStart(4, '0')}`;
+
 /** Próximo ID de evento do ano ("EV-2026-000123"). */
 export async function proximoIdEvento(prisma: PrismaService, quando = new Date()): Promise<string> {
   const ano = quando.getUTCFullYear();

@@ -6,6 +6,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { Protegido, UsuarioLogado } from '../auth/permissoes';
 import { Comprovante, Reclamacao } from './sac';
+import { identificadorSac, proximoNumeroSac } from '../atendimentos/identificador';
 
 const limpar = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : value);
 
@@ -49,8 +50,9 @@ export class SacService {
       take: 300,
       include: { _count: { select: { tratativas: true } } },
     });
-    const abertos = itens.filter((s) => s.status !== 'RESOLVIDO').sort((a, b) => ordem[a.prioridade] - ordem[b.prioridade] || +a.abertoEm - +b.abertoEm);
-    return { agora: new Date().toISOString(), abertos, resolvidos: itens.filter((s) => s.status === 'RESOLVIDO').slice(0, 50) };
+    const comCodigo = itens.map((s) => ({ ...s, codigo: identificadorSac(s.numero) }));
+    const abertos = comCodigo.filter((s) => s.status !== 'RESOLVIDO').sort((a, b) => ordem[a.prioridade] - ordem[b.prioridade] || +a.abertoEm - +b.abertoEm);
+    return { agora: new Date().toISOString(), abertos, resolvidos: comCodigo.filter((s) => s.status === 'RESOLVIDO').slice(0, 50) };
   }
 
   async detalhe(id: string) {
@@ -62,15 +64,16 @@ export class SacService {
           select: { id: true, idPR7: true, status: true, category: true, solicitadoEm: true, agenteNome: true, client: { select: { name: true } } },
         })
       : [];
-    return { ...s, atendimentos };
+    return { ...s, codigo: identificadorSac(s.numero), atendimentos };
   }
 
   async criar(dto: NovoSacDto, u: UsuarioLogado) {
+    const numero = await proximoNumeroSac(this.prisma);
     const s = await this.prisma.chamadoSac.create({
-      data: { ...dto, prioridade: dto.prioridade ?? 'MEDIA', status: 'ABERTO' },
+      data: { ...dto, numero, prioridade: dto.prioridade ?? 'MEDIA', status: 'ABERTO' },
     });
-    await this.anotar(s.id, 'SISTEMA', 'Chamado de SAC aberto manualmente', u.email);
-    return s;
+    await this.anotar(s.id, 'SISTEMA', `Chamado ${identificadorSac(numero)} aberto manualmente`, u.email);
+    return { ...s, codigo: identificadorSac(s.numero) };
   }
 
   async tratar(id: string, dto: TratativaSacDto, u: UsuarioLogado) {
@@ -96,9 +99,10 @@ export class SacService {
   async abrirPeloWhatsApp(r: Reclamacao, dados: { texto: string; grupo?: string | null; remetente?: string | null; messageId: string; quando: Date }) {
     const existente = await this.prisma.chamadoSac.findUnique({ where: { messageId: dados.messageId } });
     if (existente) return existente;
+    const numero = await proximoNumeroSac(this.prisma);
     const s = await this.prisma.chamadoSac.create({
       data: {
-        tipo: r.tipo, assunto: r.assunto, descricao: dados.texto.slice(0, 2000),
+        numero, tipo: r.tipo, assunto: r.assunto, descricao: dados.texto.slice(0, 2000),
         // Prestador cobrando atraso é prioridade: fica no topo da fila do SAC
         prioridade: r.tipo === 'PAGAMENTO_ATRASO' || r.tipo === 'ATENDIMENTO_ATRASO' ? 'ALTA' : 'MEDIA',
         solicitante: dados.remetente ?? null, grupo: dados.grupo ?? null, remetente: dados.remetente ?? null,
@@ -106,7 +110,7 @@ export class SacService {
         tratativas: { create: { tipo: 'SISTEMA', texto: `Reclamação recebida no grupo "${dados.grupo ?? 'WhatsApp'}"`, usuario: 'sistema' } },
       },
     });
-    this.logger.log(`SAC aberto (${r.tipo}) de ${dados.remetente ?? 'prestador'} — ${r.idsCitados.join(', ') || 'sem ID'}`);
+    this.logger.log(`${identificadorSac(numero)} aberto (${r.tipo}) de ${dados.remetente ?? 'prestador'} — ${r.idsCitados.join(', ') || 'sem ID'}`);
     return s;
   }
 

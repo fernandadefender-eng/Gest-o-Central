@@ -4516,6 +4516,7 @@
         ${htmlFotos(a.midias, a.id)}
         ${a.alertasDaPlaca?.length ? `<div class="bloco" style="border-color:rgba(251,113,133,.4)"><h4 style="color:#fb7185">Alertas divulgados desta placa (${a.alertasDaPlaca.length})</h4>${a.alertasDaPlaca.map((al) => `<div style="font-size:13px;margin:4px 0">${escapeHtml(al.tipo)} · ${escapeHtml(al.placa)} · ${new Date(al.divulgadoEm).toLocaleString('pt-BR')}${al.localOcorrencia ? ' · ' + escapeHtml(al.localOcorrencia) : ''}</div>`).join('')}</div>` : ''}`;
       const coluna2 = `
+        ${procedimentoCampo(a)}
         ${htmlEdicao(a, inline)}
         <div class="bloco"><h4>Prestador</h4>${kv({ Prestador: a.provider?.name, Telefone: a.provider?.phone && /^\d+$/.test(a.provider.phone) ? foneBr(a.provider.phone) : null, Agente: a.agenteNome }) || '<span style="color:#7b93a3">Nenhum prestador vinculado</span>'}</div>
         ${'valorPrestador' in a ? `<div class="bloco"><h4>Valores</h4>${kv({ 'Pago ao prestador': moeda(a.valorPrestador), 'Total ao prestador': moeda(a.valorTotalPrestador), 'Cobrado do cliente': moeda(a.valorCliente), 'Forma de pagamento': a.formaPagamento }) || '<span style="color:#7b93a3">Sem valores lançados</span>'}</div>` : ''}
@@ -4549,6 +4550,42 @@
     `<div class="ed-campo${largo ? ' largo' : ''}"><label for="ed_${campo}">${rot}</label>${tipo === 'textarea'
       ? `<textarea id="ed_${campo}" data-campo="${campo}" rows="${campo === 'summary' ? 6 : 3}">${escapeHtml(valor ?? '')}</textarea>`
       : `<input id="ed_${campo}" data-campo="${campo}" type="${tipo}"${tipo === 'number' ? ' step="0.01" min="0"' : ''} value="${escapeHtml(valor ?? '')}" />`}</div>`;
+
+  // Procedimento de campo mostrado no momento do atendimento veicular (recuperação)
+  const PROC_CAMPO = {
+    apropriacao: { titulo: 'Apropriação indébita — procedimento em campo', passos: [
+      'Verificar se a placa confere com o veículo.',
+      'Verificar a gravação do chassi nos vidros.',
+      'Se possível, contato com o locatário/possuidor.',
+      'Vistoria do veículo junto com o locatário/possuidor.',
+      'Laudo fotográfico de todas as avarias/partes faltantes.',
+      'Solicitar a chave e mantê-la até a chegada do guincho.',
+      'A chave NÃO volta ao locatário/possuidor — desbloqueio para retirar objetos é feito pelo agente.',
+      'Pedir que retire os objetos pessoais.',
+      'Em hipótese alguma o locatário/possuidor retira peças ou bateria.',
+    ] },
+    roubo: { titulo: 'Roubo / furto — procedimento em campo', passos: [
+      'No marco zero, ver se há veículos com as mesmas características.',
+      'Conferir o chassi nos vidros (placas podem ter sido trocadas).',
+      'Ver se a placa confere e se o veículo está trancado.',
+      'Laudo fotográfico das avarias/partes faltantes.',
+      'Antes de chamar o proprietário com a chave reserva, ver bateria/condições de deslocamento.',
+      'Com o proprietário: nome completo, documento (se possível), celular e informar a central.',
+      'Novo laudo fotográfico + vídeo da vistoria na presença dele; enviar à central.',
+      'Aguardar o encerramento pela central (pode ir à delegacia).',
+    ], alerta: 'Movimentação estranha: informe a central na hora, ligue 190 se possível e vá para local seguro.' },
+  };
+  function procedimentoCampo(a) {
+    if (a.vertical !== 'VEICULAR') return '';
+    const t = ((a.category || '') + ' ' + (a.summary || '') + ' ' + (a.ocorrencia || '')).toLowerCase();
+    const p = /aproria|apropria|indébit|indebit|retomad|reintegr/.test(t) ? PROC_CAMPO.apropriacao
+      : /roubo|furto|recupera|sinistr/.test(t) ? PROC_CAMPO.roubo : null;
+    if (!p) return '';
+    return `<div class="bloco" style="border:1px solid rgba(251,191,36,.5);background:rgba(251,191,36,.06)">
+      <h4 style="color:#fbbf24">🚨 ${p.titulo}</h4>
+      <ol style="margin:6px 0 0 18px;padding:0;line-height:1.6;font-size:13.5px">${p.passos.map((x) => `<li>${escapeHtml(x)}</li>`).join('')}</ol>
+      ${p.alerta ? `<div style="margin-top:8px;color:#fb7185;font-weight:600">⚠ ${escapeHtml(p.alerta)}</div>` : ''}</div>`;
+  }
 
   function htmlEdicao(a, inline) {
     if (!pode('atendimentos_criar')) return '';

@@ -26,6 +26,7 @@ import { ComunicadosModule } from './sst/comunicados.module';
 import { TreinamentoModule } from './treinamento/treinamento.module';
 import { RoteirizadorAbaModule } from './roteirizador/roteirizador-aba.module';
 import { FechamentosModule } from './fechamentos/fechamentos.module';
+import { AcessosPostoModule } from './acessos/acessos-posto.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { FechamentosModule } from './fechamentos/fechamentos.module';
     TreinamentoModule,
     RoteirizadorAbaModule,
     FechamentosModule,
+    AcessosPostoModule,
   ],
 })
 export class AppModule {}

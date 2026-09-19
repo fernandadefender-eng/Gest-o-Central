@@ -44,6 +44,7 @@ model Conta {
   atendimentos   Atendimento[]
 
   @@index([clientId])
+  acessoPosto   AcessoPosto?
 }
 
 enum ProviderStatus {
@@ -956,4 +957,26 @@ model TreinoCertificado {
   emitidoEm DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Acesso físico ao posto (18/09/2026): chave física ou cadeado de senha. Preenchido
+/// conforme os atendimentos. Guarda o histórico de trocas (ex.: outra empresa trocou a
+/// senha). O segredo é sensível: acesso restrito (operação/ADM), nunca versionado.
+model AcessoPosto {
+  id            String   @id @default(uuid())
+  contaId       String?  @unique
+  conta         Conta?   @relation(fields: [contaId], references: [id])
+  posto         String   // estabelecimento/nome do posto (quando não há conta cadastrada)
+  cidade        String?
+  uf            String?
+  cliente       String?
+  tipo          String   @default("DESCONHECIDO") // CHAVE_FISICA | SENHA | AMBOS | NENHUM | DESCONHECIDO
+  segredo       String?  // combinação do cadeado (só quando tipo SENHA/AMBOS)
+  observacao    String?
+  historico     Json     @default("[]") // [{em, por, tipo, segredoTrocado, motivo, outraEmpresa}]
+  atualizadoPor String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([posto])
 }

@@ -1218,6 +1218,7 @@
       <div class="nav-item" data-view="users" hidden><span class="dot"></span> Usuários</div>
       <div class="nav-item" data-view="treino" hidden><span class="dot"></span> 🎮 Treinamento</div>
       <div class="nav-item" data-view="rot" hidden><span class="dot"></span> 🛻 Roteirizador</div>
+      <div class="nav-item" data-view="acesso" hidden><span class="dot"></span> 🔑 Acessos dos postos</div>
       <div class="nav-item" data-view="fech" hidden><span class="dot"></span> 💰 Fechamentos</div>
       <div class="nav-item" data-view="seg" hidden><span class="dot"></span> 🛡 Segurança</div>
       <div class="nav-item disabled"><span class="dot"></span> Deslocando <span class="soon">em breve</span></div>
@@ -1521,6 +1522,17 @@
         <div class="bi-controls"><button class="bi-btn" id="fechRefresh">↻ Atualizar</button></div>
       </header>
       <div id="fechCorpo"><div class="bi-empty">Carregando...</div></div>
+    </section>
+
+    <section id="viewAcesso" class="bi" hidden>
+      <header class="bi-top">
+        <div>
+          <div class="bi-eyebrow"><span class="live-dot"></span> ACESSOS DOS POSTOS · CHAVE / CADEADO</div>
+          <h1 class="bi-h1">Acessos <span>dos postos</span></h1>
+        </div>
+        <div class="bi-controls"><button class="bi-btn" id="acRefresh">↻ Atualizar</button></div>
+      </header>
+      <div id="acCorpo"><div class="bi-empty">Carregando...</div></div>
     </section>
 
     <section id="viewRot" class="bi" hidden>
@@ -2107,7 +2119,7 @@
   // =====================================================================
   const VIEW_KEY = 'atendimento_view';
   // "mapa" usa a mesma tela da Visão geral, mostrando só o mapa (Help Desk não vê o BI)
-  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino', rot: 'viewRot', fech: 'viewFech' };
+  const views = { bi: 'viewBi', mapa: 'viewBi', mon: 'viewMon', sac: 'viewSac', pag: 'viewPag', atend: 'viewAtend', prest: 'viewPrest', equipe: 'viewEquipe', users: 'viewUsers', seg: 'viewSeg', treino: 'viewTreino', rot: 'viewRot', fech: 'viewFech', acesso: 'viewAcesso' };
 
   function mostrarView(v) {
     if (!views[v] || (perfil && !pode(PERM_DA_VIEW[v]))) return;
@@ -2124,6 +2136,7 @@
     if (v === 'seg') carregarSeguranca();
     if (v === 'treino') carregarTreino();
     if (v === 'rot') carregarRoteirizador();
+    if (v === 'acesso') carregarAcessos();
     if (v === 'fech') carregarFechamentos();
     if (v === 'equipe') carregarEquipe();
     if (v === 'mon') { carregarMon(); carregarMeuMes('monitoramento'); }
@@ -2941,7 +2954,7 @@
   // "__admin": telas exclusivas do papel ADMIN (não é permissão que se libera a operador)
   const pode = (p) => !!perfil && (p === '__admin' ? perfil.papel === 'ADMIN' : perfil.permissoes.includes(p));
   const verticaisDoPerfil = () => (!perfil ? [] : perfil.papel === 'ADMIN' ? ['PATRIMONIAL', 'VEICULAR'] : perfil.verticais);
-  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento', rot: 'roteirizador', fech: '__admin' };
+  const PERM_DA_VIEW = { bi: 'visao_geral', mapa: 'mapa', mon: 'monitoramento', sac: 'sac', pag: 'pagamentos', atend: 'atendimentos', prest: 'prestadores', equipe: 'equipe', users: 'usuarios', seg: 'nr1', treino: 'treinamento', rot: 'roteirizador', fech: '__admin', acesso: 'prestadores' };
 
   async function carregarPerfil() {
     const r = await authedFetch('/auth/me');
@@ -2973,6 +2986,7 @@
   document.getElementById('segRefresh').onclick = () => carregarSeguranca();
   document.getElementById('treinoRefresh').onclick = () => carregarTreino();
   document.getElementById('rotRefresh').onclick = () => carregarRoteirizador();
+  document.getElementById('acRefresh').onclick = () => carregarAcessos();
   document.getElementById('fechRefresh').onclick = () => carregarFechamentos();
 
   async function segJson(url, metodo, corpo) {
@@ -3384,6 +3398,77 @@
       if (!confirm('Marcar como faturados todos os atendimentos com valor de cliente neste período? (fica registrado quem fechou)')) return;
       try { const r = await authedJson(`/fechamentos/cliente/${encodeURIComponent(empresaId)}/fechar`, 'POST', { de: fechState.de || undefined, ate: fechState.ate || undefined }); alert(`✓ ${r.faturados} atendimentos marcados como faturados.`); dlg.remove(); carregarFechamentos(); }
       catch (err) { alert(err.message); }
+    };
+  }
+
+  // =====================================================================
+  // Aba Acessos dos postos — chave física / cadeado de senha (conforme atendimentos)
+  // =====================================================================
+  const ACESSO_TIPO = { CHAVE_FISICA: '🔑 Chave física', SENHA: '🔢 Cadeado de senha', AMBOS: '🔑🔢 Chave e senha', NENHUM: '🚪 Sem cadeado', DESCONHECIDO: '❔ A confirmar' };
+
+  async function carregarAcessos(q) {
+    const el = document.getElementById('acCorpo');
+    el.innerHTML = '<div class="bi-empty">Carregando...</div>';
+    try {
+      const lista = await buscarJson('/acessos-posto' + (q ? '?q=' + encodeURIComponent(q) : ''));
+      el.innerHTML = `
+        <div class="bi-controls" style="margin-bottom:12px;gap:8px">
+          <input id="acBusca" placeholder="Buscar posto, cidade ou cliente" value="${escapeHtml(q || '')}" style="min-width:260px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+          <button class="bi-btn" id="acBuscar">Buscar</button>
+          <button class="bi-btn" id="acNovo">＋ Novo posto</button>
+        </div>
+        <div class="sub" style="margin-bottom:8px">🔒 Registro do acesso físico ao posto, preenchido conforme os atendimentos. O segredo do cadeado é restrito e toda consulta/alteração fica auditada.</div>
+        <div class="table-card"><table>
+          <thead><tr><th>Posto</th><th>Cidade/UF</th><th>Cliente</th><th>Tipo</th><th>Segredo</th><th>Trocas</th><th>Atualizado</th></tr></thead>
+          <tbody id="acBody"></tbody></table></div>`;
+      document.getElementById('acBody').innerHTML = lista.map((a, i) => `
+        <tr data-i="${i}" style="cursor:pointer">
+          <td class="client-name">${escapeHtml(a.posto)}</td>
+          <td>${escapeHtml([a.cidade, a.uf].filter(Boolean).join('/') || '—')}</td>
+          <td>${escapeHtml(a.cliente || '—')}</td>
+          <td>${ACESSO_TIPO[a.tipo] || a.tipo}</td>
+          <td>${a.temSegredo ? '••••• (ver)' : '—'}</td>
+          <td>${a.trocas || '—'}</td>
+          <td class="sub">${a.atualizadoEm ? new Date(a.atualizadoEm).toLocaleDateString('pt-BR') : ''}${a.atualizadoPor ? ' · ' + escapeHtml((a.atualizadoPor || '').split('@')[0]) : ''}</td>
+        </tr>`).join('') || '<tr><td colspan="7">Nenhum posto registrado ainda. Use "＋ Novo posto" ou registre durante o atendimento.</td></tr>';
+      document.querySelectorAll('#acBody tr[data-i]').forEach((tr) => (tr.onclick = () => abrirAcesso(lista[+tr.dataset.i].id)));
+      document.getElementById('acBuscar').onclick = () => carregarAcessos(document.getElementById('acBusca').value);
+      document.getElementById('acBusca').addEventListener('keydown', (e) => { if (e.key === 'Enter') carregarAcessos(e.target.value); });
+      document.getElementById('acNovo').onclick = () => abrirAcesso(null);
+    } catch (err) { el.innerHTML = `<div class="bi-empty">Erro: ${escapeHtml(err.message)}</div>`; }
+  }
+
+  async function abrirAcesso(id) {
+    let a = { tipo: 'DESCONHECIDO', historico: [] };
+    if (id) { try { a = await buscarJson('/acessos-posto/' + id); } catch (err) { return alert(err.message); } }
+    const dlg = document.createElement('div');
+    dlg.className = 'tr-jogo';
+    const opt = Object.entries(ACESSO_TIPO).map(([k, v]) => `<option value="${k}" ${k === a.tipo ? 'selected' : ''}>${v}</option>`).join('');
+    const hist = (Array.isArray(a.historico) ? a.historico : []).slice().reverse();
+    dlg.innerHTML = `<div class="tr-palco" style="max-width:640px">
+      <h2>${id ? '🔒 ' + escapeHtml(a.posto) : 'Novo posto'}</h2>
+      <div class="ed-grade">
+        <div class="ed-campo largo"><label>Posto / estabelecimento</label><input id="acPosto" value="${escapeHtml(a.posto || '')}"></div>
+        <div class="ed-campo"><label>Cidade</label><input id="acCidade" value="${escapeHtml(a.cidade || '')}"></div>
+        <div class="ed-campo"><label>UF</label><input id="acUf" maxlength="2" value="${escapeHtml(a.uf || '')}"></div>
+        <div class="ed-campo largo"><label>Cliente</label><input id="acCliente" value="${escapeHtml(a.cliente || '')}"></div>
+        <div class="ed-campo"><label>Tipo de acesso</label><select id="acTipo">${opt}</select></div>
+        <div class="ed-campo"><label>Segredo do cadeado (só se senha)</label><input id="acSegredo" value="${escapeHtml(a.segredo || '')}" placeholder="ex.: 1234"></div>
+        <div class="ed-campo largo"><label>Observação</label><input id="acObs" value="${escapeHtml(a.observacao || '')}"></div>
+        <div class="ed-campo largo"><label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0"><input type="checkbox" id="acOutra"> Outra empresa atendeu e trocou o cadeado</label></div>
+        <div class="ed-campo largo"><label>Motivo da mudança (opcional)</label><input id="acMotivo" placeholder="ex.: senha trocada pela equipe X"></div>
+      </div>
+      ${hist.length ? `<div style="margin-top:10px"><b class="sub">Histórico de trocas</b><table class="tr-rank" style="width:100%">${hist.map((h) => `<tr><td>${new Date(h.em).toLocaleString('pt-BR')}</td><td>${ACESSO_TIPO[h.tipo] || h.tipo}</td><td>${h.segredoTrocado ? 'senha trocada' : ''}${h.outraEmpresa ? ' · outra empresa' : ''}</td><td class="sub">${escapeHtml(h.motivo || '')}</td></tr>`).join('')}</table></div>` : ''}
+      <div class="ed-acoes" style="margin-top:12px"><button class="tr-btn" id="acSalvar">Salvar</button><button class="tr-btn sec" id="acSair">Voltar</button><span class="ed-msg" id="acMsg"></span></div>
+    </div>`;
+    document.body.appendChild(dlg);
+    dlg.querySelector('#acSair').onclick = () => { dlg.remove(); carregarAcessos(document.getElementById('acBusca')?.value || ''); };
+    dlg.querySelector('#acSalvar').onclick = async () => {
+      const v = (i) => dlg.querySelector(i).value;
+      const corpo = { posto: v('#acPosto'), cidade: v('#acCidade'), uf: v('#acUf'), cliente: v('#acCliente'), tipo: v('#acTipo'), segredo: v('#acSegredo'), observacao: v('#acObs'), motivo: v('#acMotivo'), outraEmpresa: dlg.querySelector('#acOutra').checked };
+      if (!corpo.posto.trim()) { dlg.querySelector('#acMsg').textContent = 'Informe o posto.'; return; }
+      try { await authedJson('/acessos-posto' + (id ? '/' + id : ''), id ? 'PATCH' : 'POST', corpo); dlg.remove(); carregarAcessos(document.getElementById('acBusca')?.value || ''); }
+      catch (err) { dlg.querySelector('#acMsg').textContent = err.message; }
     };
   }
 

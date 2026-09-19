@@ -51,7 +51,7 @@ async function main() {
   ok((await req(o, 'GET', '/treinamento/perfil')).status === 403, 'sem permissão treinamento: 403');
   const p0 = (await req(a, 'GET', '/treinamento/perfil')).json;
   ok(p0.xp === 0 && p0.ranque.nome === 'Recruta' && p0.modulos.length === MODULOS.length, 'perfil inicial: Recruta, 0 XP');
-  ok(p0.modulos.filter((m: any) => m.aguardandoMaterial).length === 4, 'Power, GR Tracker, Sincro e Seven aguardando material');
+  ok(p0.modulos.filter((m: any) => m.aguardandoMaterial).length === 2, 'Sincro e Seven aguardando material (Power e GR já com conteúdo)');
   const mod = (await req(a, 'GET', '/treinamento/modulos/mon-fundamentos')).json;
   ok(mod.questoes.length && !JSON.stringify(mod).includes('"certa"') && !JSON.stringify(mod).includes('explicacao'), 'módulo chega SEM gabarito');
   const cen = (await req(a, 'GET', '/treinamento/cenarios/sim-bateria')).json;
@@ -86,7 +86,7 @@ async function main() {
 
   // Supervisão valida (aluno não pode)
   ok((await req(a, 'POST', '/treinamento/gestao/validacoes/mon-fundamentos', { validar: true })).status === 403, 'aluno não valida conteúdo');
-  ok((await req(s, 'POST', '/treinamento/gestao/validacoes/central-power', { validar: true })).status === 400, 'módulo sem material não pode ser validado');
+  ok((await req(s, 'POST', '/treinamento/gestao/validacoes/central-sincro', { validar: true })).status === 400, 'módulo sem material não pode ser validado');
   for (const m of MODULOS.filter((x) => x.questoes.length && !validacoesAntes.some((v) => v.moduloCodigo === x.codigo))) {
     await req(s, 'POST', `/treinamento/gestao/validacoes/${m.codigo}`, { validar: true, observacao: 'teste' });
   }

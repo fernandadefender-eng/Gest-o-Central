@@ -555,4 +555,47 @@ export class AtendimentosService {
       : [];
     return { ...comRegiao, alertasDaPlaca };
   }
+
+  /**
+   * Observação peculiar do atendimento (ex.: valor acordado no momento). Fica marcada,
+   * a supervisão é notificada (aparece na lista) e o chamado vai para a aba Fechamentos.
+   */
+  async marcarObservacaoPeculiar(id: string, texto: string, u: UsuarioLogado) {
+    const a = await this.buscarPermitido(id, verticaisPermitidas(u));
+    const t = (texto ?? '').trim();
+    if (!t) throw new BadRequestException('Escreva a observação (ex.: valor acordado no momento)');
+    const det = (a.detalhes ?? {}) as Record<string, unknown>;
+    const obs = { texto: t.slice(0, 1000), por: u.email, em: new Date().toISOString(), resolvida: false as boolean, resolvidaPor: null as string | null, resolvidaEm: null as string | null };
+    await this.prisma.atendimento.update({ where: { id }, data: { detalhes: { ...det, observacaoPeculiar: obs } as Prisma.InputJsonValue } });
+    return { ok: true };
+  }
+
+  async resolverObservacaoPeculiar(id: string, u: UsuarioLogado) {
+    const a = await this.prisma.atendimento.findUnique({ where: { id }, select: { detalhes: true } });
+    if (!a) throw new NotFoundException('Atendimento não encontrado');
+    const det = (a.detalhes ?? {}) as Record<string, unknown>;
+    const obs = det.observacaoPeculiar as Record<string, unknown> | undefined;
+    if (!obs) throw new BadRequestException('Este atendimento não tem observação peculiar');
+    await this.prisma.atendimento.update({ where: { id }, data: { detalhes: { ...det, observacaoPeculiar: { ...obs, resolvida: true, resolvidaPor: u.email, resolvidaEm: new Date().toISOString() } } as Prisma.InputJsonValue } });
+    return { ok: true };
+  }
+
+  /** Observações peculiares em aberto (para a supervisão e a aba Fechamentos). */
+  async observacoesPeculiares(incluirResolvidas = false) {
+    const rows = await this.prisma.$queryRawUnsafe<{ id: string; idpr7: string | null; idinterno: string | null; cliente: string | null; obs: any; data: Date }[]>(`
+      SELECT a.id, a."idPR7" idpr7, a."idInterno" idinterno,
+             coalesce(e."nomeFantasia", cl.name) cliente,
+             a.detalhes->'observacaoPeculiar' obs, coalesce(a."solicitadoEm", a."createdAt") data
+        FROM "Atendimento" a
+        LEFT JOIN "Empresa" e ON e.id = a."empresaId"
+        LEFT JOIN "Client" cl ON cl.id = a."clientId"
+       WHERE a.detalhes ? 'observacaoPeculiar'
+         ${incluirResolvidas ? '' : `AND coalesce((a.detalhes->'observacaoPeculiar'->>'resolvida')::boolean, false) = false`}
+       ORDER BY data DESC LIMIT 300`);
+    return rows.map((r) => ({
+      id: r.id, ref: r.idpr7 ?? r.idinterno ?? r.id.slice(0, 8), cliente: r.cliente, data: r.data,
+      texto: r.obs?.texto ?? '', por: r.obs?.por ?? '', em: r.obs?.em ?? null,
+      resolvida: !!r.obs?.resolvida, resolvidaPor: r.obs?.resolvidaPor ?? null,
+    }));
+  }
 }

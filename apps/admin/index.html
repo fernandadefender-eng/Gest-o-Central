@@ -1404,7 +1404,8 @@
           <button class="st-chip" data-st="NAO_ATENDIDO" style="color:#fb7185">Não atendidos</button>
           <button class="st-chip" data-st="CANCELADO" style="color:#94a3b8">Cancelados</button>
           <button class="bi-btn" id="atAtualizar">↻</button>
-          <button class="bi-btn" id="exportBtn" hidden>⬇ Relatório</button>
+          <button class="bi-btn" id="exportBtn" hidden>⬇ Excel</button>
+          <button class="bi-btn" id="exportPdfBtn" hidden title="Relatório em PDF da lista atual — sem valores">📄 PDF</button>
         </div>
         <div style="overflow-x:auto">
           <table class="at-tabela">
@@ -1499,6 +1500,7 @@
         </div>
       </header>
       <div class="bi-kpis" id="eqKpis"></div>
+      <div id="obsPeculiaresEquipe" style="margin-bottom:12px"></div>
       <div class="bi-card" style="margin-bottom:12px">
         <div class="bi-title" style="margin:0">Como ler</div>
         <div style="font-size:12.5px;color:var(--bi-muted);margin-top:6px;line-height:1.6">
@@ -1962,6 +1964,8 @@
     iniciarPendencias();
     atualizarAvisoAprovacoes();
     if (!window.__aprovTimer) window.__aprovTimer = setInterval(atualizarAvisoAprovacoes, 120000);
+    atualizarBadgeObs();
+    if (!window.__obsTimer) window.__obsTimer = setInterval(atualizarBadgeObs, 120000);
     // A cada login; ao reabrir o painel já logado, uma vez por sessão do navegador
     let jaViu = false;
     try { jaViu = sessionStorage.getItem('pr7_boas_vindas') === '1'; sessionStorage.setItem('pr7_boas_vindas', '1'); } catch {}
@@ -2965,6 +2969,7 @@
     if (pode('visao_geral')) document.querySelector('.nav-item[data-view="mapa"]').hidden = true;
     document.getElementById('btnNovaOcorrencia').hidden = !pode('atendimentos_criar');
     document.getElementById('exportBtn').hidden = !pode('relatorios');
+    document.getElementById('exportPdfBtn').hidden = !pode('relatorios');
     document.getElementById('btnListaRestritos').hidden = !pode('prestadores_editar');
     if (!verticaisDoPerfil().includes('PATRIMONIAL')) document.getElementById('lyEstab').closest('label').hidden = true;
     montarSegmentos();
@@ -3323,6 +3328,38 @@
   // =====================================================================
   const fechState = { de: '', ate: '', empresaId: null, nome: '' };
 
+  // Observações peculiares em aberto (valor acordado no momento, etc.) — supervisão e Fechamentos
+  async function carregarObsPeculiares(destino) {
+    const box = document.getElementById(destino === 'fech' ? 'obsPeculiaresBox' : 'obsPeculiaresEquipe');
+    if (!box) return;
+    const podeResolver = perfil.papel === 'ADMIN' || perfil.funcao === 'SUPERVISAO' || pode('equipe');
+    try {
+      const lista = await buscarJson('/atendimentos/observacoes-peculiares/abertas');
+      if (!lista.length) { box.innerHTML = ''; return; }
+      box.innerHTML = `<div class="bi-card" style="border:1px solid rgba(251,191,36,.5);background:rgba(251,191,36,.06)">
+        <div class="bi-title" style="color:#fbbf24">⚠ Observações peculiares a tratar (${lista.length})</div>
+        <table class="pl-tab"><tr><th>ID</th><th>Cliente</th><th>Observação</th><th>Registrado por</th><th></th></tr>
+        ${lista.map((o) => `<tr data-obs="${o.id}"><td>${escapeHtml(o.ref)}</td><td>${escapeHtml(o.cliente || '—')}</td><td style="text-align:left">${escapeHtml(o.texto)}</td><td class="sub">${escapeHtml((o.por||'').split('@')[0])} · ${o.em ? new Date(o.em).toLocaleDateString('pt-BR') : ''}</td><td>${podeResolver ? `<button class="bi-btn" data-resolver="${o.id}">Resolver</button>` : ''}</td></tr>`).join('')}</table></div>`;
+      box.querySelectorAll('[data-resolver]').forEach((b) => (b.onclick = async () => {
+        if (!confirm('Marcar esta observação peculiar como resolvida?')) return;
+        try { await authedJson(`/atendimentos/${b.dataset.resolver}/observacao-peculiar/resolver`, 'POST', {}); carregarObsPeculiares(destino); atualizarBadgeObs(); }
+        catch (err) { alert(err.message); }
+      }));
+    } catch { box.innerHTML = ''; }
+  }
+
+  // Badge no menu para supervisão/ADM (notificação)
+  async function atualizarBadgeObs() {
+    if (!perfil || (perfil.papel !== 'ADMIN' && perfil.funcao !== 'SUPERVISAO' && !pode('equipe'))) return;
+    try {
+      const n = (await buscarJson('/atendimentos/observacoes-peculiares/abertas')).length;
+      const alvo = document.querySelector(perfil.papel === 'ADMIN' ? '[data-view="fech"]' : '[data-view="equipe"]');
+      if (!alvo) return;
+      alvo.querySelector('.badge-obs')?.remove();
+      if (n) alvo.insertAdjacentHTML('beforeend', ` <span class="badge-obs" title="Observações peculiares a tratar" style="background:#fbbf24;color:#2a1d02;border-radius:999px;padding:0 7px;font-size:11px;font-weight:700">${n}</span>`);
+    } catch {}
+  }
+
   async function carregarFechamentos() {
     const el = document.getElementById('fechCorpo');
     el.innerHTML = '<div class="bi-empty">Carregando...</div>';
@@ -3344,6 +3381,7 @@
           <button class="bi-btn" id="fFiltrar">Filtrar</button>
         </div>
         <div class="kpis">${cards.map(([l, v, s]) => `<div class="kpi"><div class="k-label">${l}</div><div class="k-value num">${v}</div><div class="k-sub">${s}</div></div>`).join('')}</div>
+        <div id="obsPeculiaresBox" style="margin-top:14px"></div>
         <div class="table-card" style="margin-top:14px"><table>
           <thead><tr><th>Cliente</th><th>Atend.</th><th>Com valor</th><th>Sem valor</th><th>Faturamento</th><th>Faturado</th></tr></thead>
           <tbody id="fBody"></tbody></table></div>`;
@@ -3358,6 +3396,7 @@
         </tr>`).join('') || '<tr><td colspan="6">Nenhum atendimento concluído no período.</td></tr>';
       document.querySelectorAll('#fBody tr[data-i]').forEach((tr) => (tr.onclick = () => abrirFechamentoCliente(d.clientes[+tr.dataset.i])));
       document.getElementById('fFiltrar').onclick = () => { fechState.de = document.getElementById('fDe').value; fechState.ate = document.getElementById('fAte').value; carregarFechamentos(); };
+      carregarObsPeculiares('fech');
     } catch (err) { el.innerHTML = `<div class="bi-empty">${err.message.includes('exclusiva') || err.message.includes('administrador') ? '🔒 Área exclusiva do administrador.' : 'Erro: ' + escapeHtml(err.message)}</div>`; }
   }
 
@@ -4409,6 +4448,20 @@
     } catch (err) { alert('Erro ao baixar relatório: ' + err.message); }
   });
 
+  // PDF da lista de atendimentos (sem valores) — respeita os filtros atuais
+  document.getElementById('exportPdfBtn').addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; const t = b.textContent; b.textContent = 'Gerando...';
+    try {
+      const q = queryAtendimentos();
+      const res = await authedFetch(`/reports/atendimentos.pdf${q ? '?' + q : ''}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'falha');
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a'); a.href = url; a.download = 'relatorio-atendimentos.pdf';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (err) { alert('Erro ao gerar PDF: ' + err.message); }
+    finally { b.disabled = false; b.textContent = t; }
+  });
+
   // Relatório PDF do atendimento (botão na ficha): baixa com o token do usuário
   document.addEventListener('click', async (e) => {
     const b = e.target.closest?.('[data-pdf]');
@@ -4622,12 +4675,29 @@
             : 'Local difícil ou regra diferente? Ajuste o valor aqui — fica registrado quem mudou.'}</div>` : ''}
       </div>
       <div class="ed-acoes"><button class="bi-btn" data-salvar>Salvar alterações</button><button class="bi-btn" data-desfazer>Desfazer</button><span class="ed-msg" data-msg></span></div>
+      <div class="bloco" style="border-color:rgba(251,191,36,.4);margin-top:10px">
+        <h4 style="color:#fbbf24">⚠ Observação peculiar (valor acordado no momento, etc.)</h4>
+        ${a.detalhes?.observacaoPeculiar && !a.detalhes.observacaoPeculiar.resolvida
+          ? `<div class="sub" style="color:#fbbf24">Registrada por ${escapeHtml((a.detalhes.observacaoPeculiar.por||'').split('@')[0])} em ${a.detalhes.observacaoPeculiar.em ? new Date(a.detalhes.observacaoPeculiar.em).toLocaleString('pt-BR') : ''} — a supervisão foi notificada e está na aba Fechamentos.</div><div style="margin:6px 0;white-space:pre-wrap">${escapeHtml(a.detalhes.observacaoPeculiar.texto||'')}</div>`
+          : a.detalhes?.observacaoPeculiar?.resolvida ? `<div class="sub">✓ Resolvida por ${escapeHtml((a.detalhes.observacaoPeculiar.resolvidaPor||'').split('@')[0])}. Registre uma nova se precisar.</div>` : ''}
+        <div style="display:flex;gap:6px;margin-top:6px"><input id="ed_obsPeculiar" placeholder="Ex.: valor acordado no local R$ ___ com o cliente" style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(148,163,184,.25);border-radius:8px;color:#e7f2f8;padding:8px 10px;font:inherit;font-size:13px">
+          <button class="bi-btn" data-obs-peculiar="${a.id}">Registrar e notificar</button></div>
+      </div>
     </div>`;
   }
 
   function ligarEdicao(a, corpo) {
     const bloco = corpo.querySelector('[data-edicao]');
     if (!bloco) return;
+    // Observação peculiar: registra e notifica a supervisão (vai para o Fechamento)
+    const btnObs = bloco.querySelector('[data-obs-peculiar]');
+    if (btnObs) btnObs.onclick = async () => {
+      const inp = bloco.querySelector('#ed_obsPeculiar');
+      if (!inp.value.trim()) { inp.focus(); return; }
+      btnObs.disabled = true;
+      try { await authedJson(`/atendimentos/${a.id}/observacao-peculiar`, 'POST', { texto: inp.value }); alert('⚠ Observação registrada. A supervisão foi notificada e o chamado está na aba Fechamentos.'); recarregarDetalhe(a.id); }
+      catch (err) { alert(err.message); btnObs.disabled = false; }
+    };
     const campos = [...bloco.querySelectorAll('[data-campo]')];
     const inicial = new Map(campos.map((c) => [c.dataset.campo, c.value]));
     const msg = bloco.querySelector('[data-msg]');
@@ -5654,6 +5724,7 @@
   ligarIntervalo('eqPeriodo', 'eqIntervalo', 'eqDe', 'eqAte', () => carregarEquipe());
 
   async function carregarEquipe() {
+    carregarObsPeculiares('equipe');
     // Segmento de vertical igual ao das outras telas
     const verts = verticaisDoPerfil(), seg = document.getElementById('eqSeg');
     // Monitoramento entra como mais uma aba: desempenho de quem trata os eventos veiculares

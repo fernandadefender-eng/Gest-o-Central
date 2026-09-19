@@ -110,6 +110,32 @@ export class AtendimentosController {
     return this.atendimentosService.marcar(id, dto, req.user);
   }
 
+  /** Observações peculiares em aberto — notificação da supervisão e lista da aba Fechamentos. */
+  @Get('observacoes-peculiares/abertas')
+  observacoesPeculiares(@Req() req: Req) {
+    return this.atendimentosService.observacoesPeculiares(false);
+  }
+
+  /** Marca uma observação peculiar (ex.: valor acordado no momento) — vai para a supervisão/Fechamentos. */
+  @Protegido('atendimentos_criar')
+  @Post(':id/observacao-peculiar')
+  async marcarObs(@Param('id', ParseUUIDPipe) id: string, @Body() dto: { texto?: string }, @Req() req: Req) {
+    const r = await this.atendimentosService.marcarObservacaoPeculiar(id, dto?.texto ?? '', req.user);
+    this.auditoria.registrar('CADASTRO_ALTERADO', { ip: req.ip, usuario: req.user.email, detalhe: `atendimento ${id}: observação peculiar registrada (supervisão notificada) — ${(dto?.texto ?? '').slice(0, 160)}` });
+    return r;
+  }
+
+  /** Supervisão/ADM marca a observação peculiar como resolvida. */
+  @Post(':id/observacao-peculiar/resolver')
+  async resolverObs(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req) {
+    if (req.user.papel !== 'ADMIN' && req.user.funcao !== 'SUPERVISAO' && !temPermissao(req.user, 'equipe')) {
+      return { erro: 'Só a supervisão ou o administrador resolve observações peculiares' };
+    }
+    const r = await this.atendimentosService.resolverObservacaoPeculiar(id, req.user);
+    this.auditoria.registrar('CADASTRO_ALTERADO', { ip: req.ip, usuario: req.user.email, detalhe: `atendimento ${id}: observação peculiar resolvida` });
+    return r;
+  }
+
   @Get(':id')
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req) {
     const a = await this.atendimentosService.findOne(id, verticaisPermitidas(req.user));

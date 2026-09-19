@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } fro
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { calcularValorPrestador } from './precos';
+import { ConfigTbg, ehPontoTbg, valorAcordadoTbg } from './tbg';
 
 /**
  * Preenche o valor ao prestador dos chamados concluídos que chegaram sem valor
@@ -18,10 +19,18 @@ export async function preencherValores(prisma: PrismaService, desde = new Date(D
     // Só chamados vindos do WhatsApp: linha da planilha sem valor é histórico e fica como veio
     where: { status: 'CONCLUIDO', valorPrestador: null, conversationId: { not: null }, OR: [{ solicitadoEm: { gte: desde } }, { solicitadoEm: null, createdAt: { gte: desde } }] },
     select: {
-      id: true, vertical: true, category: true, providerId: true, chegadaEm: true, concluidoEm: true, solicitadoEm: true, detalhes: true,
+      id: true, vertical: true, category: true, providerId: true, chegadaEm: true, concluidoEm: true, solicitadoEm: true, detalhes: true, summary: true,
       client: { select: { name: true } }, empresa: { select: { nomeFantasia: true, razaoSocial: true } },
+      conta: { select: { estabelecimento: true } },
+      provider: { select: { name: true, apelido: true, phone: true } },
     },
   });
+  // Tabela de valores acordados dos apoios TBG (config importada da planilha)
+  let cfgTbg: ConfigTbg | null = null;
+  try {
+    const c = await prisma.configSistema.findUnique({ where: { chave: 'tbg_apoios' } });
+    if (c) cfgTbg = JSON.parse(c.valor) as ConfigTbg;
+  } catch { cfgTbg = null; }
   let preenchidos = 0, pendentes = 0;
   for (const a of alvos) {
     const det = (a.detalhes ?? {}) as Record<string, unknown>;
@@ -35,7 +44,12 @@ export async function preencherValores(prisma: PrismaService, desde = new Date(D
       taxa = t?.taxa ?? null;
     }
     const cliente = a.empresa?.nomeFantasia || a.empresa?.razaoSocial || a.client?.name;
-    const c = calcularValorPrestador({ ...a, clienteNome: cliente, detalhes: det }, taxa);
+    let c = calcularValorPrestador({ ...a, clienteNome: cliente, detalhes: det }, taxa);
+    // Ponto TBG + apoio com valor acordado: esse valor prevalece sobre o cálculo padrão.
+    if (ehPontoTbg(a.conta?.estabelecimento, a.summary, cliente) && a.provider) {
+      const tbg = valorAcordadoTbg(cfgTbg, a.provider);
+      if (tbg) c = { valor: tbg.valor, regra: 'TBG (valor acordado do apoio)', memoria: `R$ ${tbg.valor} acordado com ${tbg.apoio.nome} para ${tbg.apoio.ponto || 'ponto TBG'}${/enviar|verificar/i.test(tbg.apoio.camisa) ? ' · camiseta branca pendente' : ''}`, conferir: [] };
+    }
     const valorCalculado = { valor: c.valor, regra: c.regra, memoria: c.memoria, conferir: c.conferir, em: new Date().toISOString() };
     await prisma.atendimento.update({
       where: { id: a.id },

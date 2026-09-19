@@ -1451,6 +1451,8 @@
         </div>
         <div class="bi-controls">
           <button class="bi-btn" id="sacAtualizar">↻</button>
+          <button class="bi-btn" id="sacExcel" title="Relatório de SAC em Excel">⬇ Excel</button>
+          <button class="bi-btn" id="sacPdf" title="Relatório de SAC em PDF (sem valores)">📄 PDF</button>
           <button class="bi-btn" id="sacNovo">+ Chamado de SAC</button>
         </div>
       </header>
@@ -1543,7 +1545,11 @@
           <div class="bi-eyebrow"><span class="live-dot"></span> ROTEIRIZADOR · TOM / CLAYTON AMORIM</div>
           <h1 class="bi-h1">Roteirizador <span>· abastecimento e despesas</span></h1>
         </div>
-        <div class="bi-controls"><button class="bi-btn" id="rotRefresh">↻ Atualizar</button></div>
+        <div class="bi-controls">
+          <button class="bi-btn" id="rotRefresh">↻ Atualizar</button>
+          <button class="bi-btn" id="rotExcel" title="Relatório do Roteirizador em Excel (com despesas)">⬇ Excel</button>
+          <button class="bi-btn" id="rotPdf" title="Relatório do Roteirizador em PDF">📄 PDF</button>
+        </div>
       </header>
       <div id="rotCorpo"><div class="bi-empty">Carregando...</div></div>
     </section>
@@ -4461,6 +4467,25 @@
     } catch (err) { alert('Erro ao gerar PDF: ' + err.message); }
     finally { b.disabled = false; b.textContent = t; }
   });
+
+  // Download genérico de relatório (usado por SAC, Roteirizador e demais abas)
+  async function baixarRelatorio(botao, url, nomeArquivo) {
+    const t = botao.textContent; botao.disabled = true; botao.textContent = 'Gerando...';
+    try {
+      const res = await authedFetch(url);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'falha');
+      const blobUrl = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a'); a.href = blobUrl; a.download = nomeArquivo;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+    } catch (err) { alert('Erro ao gerar relatório: ' + err.message); }
+    finally { botao.disabled = false; botao.textContent = t; }
+  }
+  const _liga = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => fn(b)); };
+  _liga('sacExcel', (b) => baixarRelatorio(b, '/sac/relatorio.xlsx', 'sac.xlsx'));
+  _liga('sacPdf', (b) => baixarRelatorio(b, '/sac/relatorio.pdf', 'sac.pdf'));
+  const _rotQuery = () => { const q = new URLSearchParams(); if (rotState.de) q.set('de', rotState.de); if (rotState.ate) q.set('ate', rotState.ate); return q.toString(); };
+  _liga('rotExcel', (b) => baixarRelatorio(b, '/roteirizador/relatorio.xlsx?' + _rotQuery(), 'roteirizador.xlsx'));
+  _liga('rotPdf', (b) => baixarRelatorio(b, '/roteirizador/relatorio.pdf?' + _rotQuery(), 'roteirizador.pdf'));
 
   // Relatório PDF do atendimento (botão na ficha): baixa com o token do usuário
   document.addEventListener('click', async (e) => {

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Injectable, Logger, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Logger, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { EventoPrioridade, Prisma, SacStatus, SacTipo } from '@prisma/client';
@@ -7,6 +8,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Protegido, UsuarioLogado } from '../auth/permissoes';
 import { Comprovante, Reclamacao } from './sac';
 import { identificadorSac, proximoNumeroSac } from '../atendimentos/identificador';
+import { gerarTabelaPdf, gerarTabelaXlsx } from '../reports/relatorio-tabela-pdf';
+
+const dataHoraBr = (d: Date | string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
 
 const limpar = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : value);
 
@@ -53,6 +57,38 @@ export class SacService {
     const comCodigo = itens.map((s) => ({ ...s, codigo: identificadorSac(s.numero) }));
     const abertos = comCodigo.filter((s) => s.status !== 'RESOLVIDO').sort((a, b) => ordem[a.prioridade] - ordem[b.prioridade] || +a.abertoEm - +b.abertoEm);
     return { agora: new Date().toISOString(), abertos, resolvidos: comCodigo.filter((s) => s.status === 'RESOLVIDO').slice(0, 50) };
+  }
+
+  /** Dados achatados para relatório (sem valores — SAC não guarda valores). */
+  private async linhasRelatorio(status?: SacStatus) {
+    const itens = await this.prisma.chamadoSac.findMany({
+      where: status ? { status } : {},
+      orderBy: { abertoEm: 'desc' }, take: 1000,
+      include: { _count: { select: { tratativas: true } } },
+    });
+    return itens.map((s) => ({
+      codigo: identificadorSac(s.numero), tipo: s.tipo, assunto: s.assunto, prioridade: s.prioridade,
+      status: s.status, solicitante: s.solicitante ?? '', regiao: s.regiao ?? '',
+      abertoEm: s.abertoEm, resolvidoEm: s.resolvidoEm, solucao: s.solucao ?? '', tratativas: s._count.tratativas,
+    }));
+  }
+
+  async planilha(status?: SacStatus): Promise<Buffer> {
+    const l = await this.linhasRelatorio(status);
+    const cab = ['Código', 'Tipo', 'Assunto', 'Prioridade', 'Status', 'Solicitante', 'Região', 'Aberto em', 'Resolvido em', 'Solução', 'Tratativas'];
+    const linhas = l.map((s) => [s.codigo, s.tipo, s.assunto, s.prioridade, s.status, s.solicitante, s.regiao, dataHoraBr(s.abertoEm), dataHoraBr(s.resolvidoEm), s.solucao, s.tratativas]);
+    return gerarTabelaXlsx('SAC', cab, linhas);
+  }
+
+  async pdf(status?: SacStatus): Promise<Buffer> {
+    const l = await this.linhasRelatorio(status);
+    const colunas = [
+      { t: 'Código', w: 70 }, { t: 'Tipo', w: 110 }, { t: 'Assunto', w: 150 }, { t: 'Prio.', w: 50 },
+      { t: 'Status', w: 70 }, { t: 'Solicitante', w: 100 }, { t: 'Aberto em', w: 95 }, { t: 'Solução', w: 0 },
+    ];
+    const linhas = l.map((s) => [s.codigo, s.tipo, s.assunto, s.prioridade, s.status, s.solicitante, dataHoraBr(s.abertoEm), s.solucao]);
+    const abertos = l.filter((s) => s.status !== 'RESOLVIDO').length;
+    return gerarTabelaPdf({ titulo: 'SAC — atendimentos ao prestador', subtitulo: status ? `filtro: ${status}` : 'todos os chamados', colunas, linhas, totais: [`Total: ${l.length}`, `Em aberto: ${abertos}`, `Resolvidos: ${l.length - abertos}`], rodape: `${l.length} chamados de SAC · uso interno (supervisão/ADM)` });
   }
 
   async detalhe(id: string) {
@@ -149,6 +185,20 @@ export class SacController {
   @Get()
   lista(@Query('status') status?: string) {
     return this.sac.lista(status && status in SacStatus ? (status as SacStatus) : undefined);
+  }
+
+  @Get('relatorio.xlsx')
+  async xlsx(@Query('status') status: string | undefined, @Res() res: Response) {
+    const buffer = await this.sac.planilha(status && status in SacStatus ? (status as SacStatus) : undefined);
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="sac.xlsx"' });
+    res.send(buffer);
+  }
+
+  @Get('relatorio.pdf')
+  async pdf(@Query('status') status: string | undefined, @Res() res: Response) {
+    const buffer = await this.sac.pdf(status && status in SacStatus ? (status as SacStatus) : undefined);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="sac.pdf"' });
+    res.send(buffer);
   }
 
   @Get(':id')

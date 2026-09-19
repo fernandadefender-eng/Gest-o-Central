@@ -1,9 +1,14 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { Protegido, UsuarioLogado } from '../auth/permissoes';
 import { AuditoriaService } from '../seguranca/seguranca.module';
+import { gerarTabelaPdf, gerarTabelaXlsx } from '../reports/relatorio-tabela-pdf';
+
+const brl = (n: number) => `R$ ${n.toFixed(2).replace('.', ',')}`;
+const dataBr = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '');
 
 /**
  * Aba Roteirizador (18/09/2026): gere os atendimentos do acompanhamento velado, feitos
@@ -128,6 +133,28 @@ export class RoteirizadorService {
     return { ok: true, despesas };
   }
 
+  /** Relatório do Roteirizador em Excel (com despesas — uso interno da operação). */
+  async planilha(de?: string, ate?: string): Promise<Buffer> {
+    const { itens, resumo, periodo } = await this.lista(de, ate);
+    const cab = ['Ref', 'Data', 'Motorista', 'Cliente', 'Placa', 'Serviço', 'Status', 'Paradas', 'Litros', 'Total despesas (R$)'];
+    const linhas = itens.map((it) => [it.ref, dataBr(it.data), it.motorista, it.cliente ?? '', it.placa ?? '', it.category ?? '', it.status, it.paradas, it.litros || '', it.totalDespesas.toFixed(2)]);
+    linhas.push([]);
+    linhas.push(['TOTAL', `${periodo.de} a ${periodo.ate}`, '', '', '', '', '', resumo.atendimentos, resumo.litros || '', resumo.totalGeral.toFixed(2)]);
+    return gerarTabelaXlsx('Roteirizador', cab, linhas);
+  }
+
+  /** Relatório do Roteirizador em PDF (uso interno — inclui totais de despesa). */
+  async pdf(de?: string, ate?: string): Promise<Buffer> {
+    const { itens, resumo, periodo } = await this.lista(de, ate);
+    const colunas = [
+      { t: 'Ref', w: 60 }, { t: 'Data', w: 62 }, { t: 'Motorista', w: 110 }, { t: 'Cliente', w: 130 },
+      { t: 'Placa', w: 70 }, { t: 'Serviço', w: 90 }, { t: 'Status', w: 70 }, { t: 'Paradas', w: 55 }, { t: 'Despesas', w: 0 },
+    ];
+    const linhas = itens.map((it) => [it.ref, dataBr(it.data), it.motorista, it.cliente ?? '', it.placa ?? '', it.category ?? '', it.status, it.paradas, brl(it.totalDespesas)]);
+    const totais = [`Atendimentos: ${resumo.atendimentos}`, `Litros: ${resumo.litros || 0}`, `Total de despesas: ${brl(resumo.totalGeral)}`];
+    return gerarTabelaPdf({ titulo: 'Roteirizador — acompanhamento e despesas', subtitulo: `período ${periodo.de} a ${periodo.ate}`, colunas, linhas, totais, rodape: `${itens.length} atendimentos · uso interno (supervisão/ADM)` });
+  }
+
   /** Motorista do dia: por padrão Tom; registra outro nome quando ele não atende. */
   async definirMotorista(id: string, motorista: string, u: UsuarioLogado) {
     const nome = (motorista ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -148,6 +175,18 @@ class RoteirizadorController {
   constructor(private readonly s: RoteirizadorService) {}
 
   @Get() lista(@Query('de') de: string, @Query('ate') ate: string, @Req() r: Req) { return this.s.lista(de, ate, r.user); }
+
+  @Get('relatorio.xlsx') async xlsx(@Query('de') de: string, @Query('ate') ate: string, @Res() res: Response) {
+    const buffer = await this.s.planilha(de, ate);
+    res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="roteirizador.xlsx"' });
+    res.send(buffer);
+  }
+  @Get('relatorio.pdf') async relPdf(@Query('de') de: string, @Query('ate') ate: string, @Res() res: Response) {
+    const buffer = await this.s.pdf(de, ate);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="roteirizador.pdf"' });
+    res.send(buffer);
+  }
+
   @Post(':id/despesa') addDespesa(@Param('id', ParseUUIDPipe) id: string, @Body() dto: Record<string, unknown>, @Req() r: Req) { return this.s.adicionarDespesa(id, dto, r.user); }
   @Post(':id/despesa/:indice/remover') rmDespesa(@Param('id', ParseUUIDPipe) id: string, @Param('indice') indice: string, @Req() r: Req) { return this.s.removerDespesa(id, Number(indice), r.user); }
   @Patch(':id/motorista') motorista(@Param('id', ParseUUIDPipe) id: string, @Body() b: { motorista?: string }, @Req() r: Req) { return this.s.definirMotorista(id, b?.motorista ?? '', r.user); }
